@@ -125,6 +125,7 @@ class UISystem {
     element.textContent = text;
     this.conversation.appendChild(element);
     this.conversation.scrollTop = this.conversation.scrollHeight;
+    return element;
   }
 
   async submitMessage(text) {
@@ -137,21 +138,68 @@ class UISystem {
         body: JSON.stringify({ message: text, history: this.history }),
       });
 
-      if (!response.ok) {
+      if (!response.ok || !response.body) {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const data = await response.json();
-      this.history.push({ role: "user", content: text });
-      this.history.push({ role: "assistant", content: data.reply });
+      const reply = await this.streamIntoMessage(response.body);
 
-      this.addMessage("assistant", data.reply);
+      this.history.push({ role: "user", content: text });
+      this.history.push({ role: "assistant", content: reply });
+
       if (this.onReply) {
-        this.onReply(data.reply);
+        this.onReply(reply);
       }
     } catch (error) {
       this.addMessage("assistant", "Connexion au noyau A.B.D. impossible.");
     }
+  }
+
+  /**
+   * Consomme le flux de la réponse et affiche le texte progressivement
+   * (effet "typing") : les fragments réseau alimentent une file que l'on
+   * vide caractère par caractère.
+   */
+  async streamIntoMessage(body) {
+    const element = this.addMessage("assistant", "");
+    const decoder = new TextDecoder("utf-8");
+    const reader = body.getReader();
+
+    let pending = "";
+    let displayed = "";
+    let done = false;
+    const CHARS_PER_TICK = 2;
+    const TICK_MS = 12;
+
+    const typer = new Promise((resolve) => {
+      const tick = () => {
+        if (pending.length > 0) {
+          displayed += pending.slice(0, CHARS_PER_TICK);
+          pending = pending.slice(CHARS_PER_TICK);
+          element.textContent = displayed;
+          this.conversation.scrollTop = this.conversation.scrollHeight;
+        }
+        if (done && pending.length === 0) {
+          resolve();
+        } else {
+          setTimeout(tick, TICK_MS);
+        }
+      };
+      tick();
+    });
+
+    while (true) {
+      const { value, done: streamDone } = await reader.read();
+      if (streamDone) {
+        pending += decoder.decode();
+        break;
+      }
+      pending += decoder.decode(value, { stream: true });
+    }
+    done = true;
+
+    await typer;
+    return displayed;
   }
 }
 
