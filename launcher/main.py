@@ -11,7 +11,12 @@ from pathlib import Path
 
 import webview
 
-ROOT = Path(__file__).resolve().parent.parent
+# En mode exécutable PyInstaller, les ressources sont extraites dans _MEIPASS.
+if getattr(sys, "frozen", False):
+    ROOT = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+else:
+    ROOT = Path(__file__).resolve().parent.parent
+
 INDEX_HTML = ROOT / "frontend" / "index.html"
 
 BACKEND_HOST = "127.0.0.1"
@@ -19,7 +24,8 @@ BACKEND_PORT = 8756
 
 
 def start_backend() -> None:
-    sys.path.insert(0, str(ROOT))
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
     import uvicorn
 
     from backend.app import app
