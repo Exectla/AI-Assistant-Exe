@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>A.B.D. — Advanced Brain Understanding</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Séquence de démarrage -->
+  <section id="boot" class="boot" aria-hidden="true">
+    <div class="boot__line"></div>
+    <div class="boot__letters">
+      <span class="boot__letter boot__letter--a">A.</span>
+      <span class="boot__letter boot__letter--b">B.</span>
+      <span class="boot__letter boot__letter--d">D.</span>
+    </div>
+  </section>
+
+  <!-- Interface principale -->
+  <main id="app" class="app">
+    <header class="app__header">
+      <h1 class="app__title">A.B.D.</h1>
+      <p class="app__subtitle">Advanced Brain Understanding</p>
+    </header>
+
+    <section class="app__conversation" id="conversation" aria-live="polite"></section>
+
+    <footer class="app__controls">
+      <button id="mic-button" class="control control--mic" type="button" aria-label="Parler à A.B.D.">
+        <span class="control__ring"></span>
+        <span class="control__label">Parler</span>
+      </button>
+
+      <form id="chat-form" class="control control--form">
+        <input id="chat-input" class="control__input" type="text"
+               placeholder="Écrivez à A.B.D…" autocomplete="off" />
+        <button id="send-button" class="control__send" type="submit" aria-label="Envoyer">→</button>
+      </form>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

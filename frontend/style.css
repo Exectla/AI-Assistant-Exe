@@ -1,0 +1,293 @@
+/* ============================================================
+   A.B.D. — Dark Luxury
+   Palette stricte : fond #000000, texte #F4F4F0, ligne #1A1A1A
+   ============================================================ */
+
+:root {
+  --color-bg: #000000;
+  --color-text: #F4F4F0;
+  --color-line: #1A1A1A;
+
+  --pad-v: 12vh;
+  --pad-h: 14vw;
+
+  --font-stack: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --letter-spacing-wide: 0.45em;
+
+  --boot-duration: 10s;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-stack);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* ============================================================
+   Séquence de démarrage (10s)
+   ============================================================ */
+
+.boot {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+  z-index: 10;
+  animation: boot-fade-out 1s var(--ease) 10s forwards;
+}
+
+/* 0–3s : ligne horizontale, largeur 0 → 100% */
+.boot__line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 1px;
+  width: 0;
+  background: var(--color-line);
+  animation:
+    boot-line-grow 3s var(--ease) 0s forwards,
+    boot-line-vanish 1s var(--ease) 6.5s forwards;
+}
+
+@keyframes boot-line-grow {
+  from { width: 0; }
+  to   { width: 100%; }
+}
+
+@keyframes boot-line-vanish {
+  to { opacity: 0; }
+}
+
+/* 3–7s : lettres en fondu séquentiel, blur 10px → 0 */
+.boot__letters {
+  display: flex;
+  gap: 2.5vw;
+  font-size: 6vw;
+  font-weight: 200;
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.boot__letter {
+  opacity: 0;
+  filter: blur(10px);
+  animation: boot-letter-in 1.4s var(--ease) forwards;
+}
+
+.boot__letter--a { animation-delay: 3s; }
+.boot__letter--b { animation-delay: 4.2s; }
+.boot__letter--d { animation-delay: 5.4s; }
+
+@keyframes boot-letter-in {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@keyframes boot-fade-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* ============================================================
+   Interface principale — 7–10s : opacité 0 → 1
+   ============================================================ */
+
+.app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--pad-v) var(--pad-h);
+  opacity: 0;
+  animation: app-reveal 3s var(--ease) 7s forwards;
+}
+
+@keyframes app-reveal {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.app__header {
+  text-align: center;
+}
+
+.app__title {
+  font-size: 1.6rem;
+  font-weight: 200;
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.app__subtitle {
+  margin-top: 1.2vh;
+  font-size: 0.65rem;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  opacity: 0.4;
+}
+
+/* ============================================================
+   Conversation
+   ============================================================ */
+
+.app__conversation {
+  flex: 1;
+  margin: 6vh 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3.5vh;
+  scrollbar-width: none;
+}
+
+.app__conversation::-webkit-scrollbar {
+  display: none;
+}
+
+.message {
+  max-width: 70%;
+  font-size: 0.9rem;
+  font-weight: 300;
+  line-height: 1.8;
+  letter-spacing: 0.05em;
+  opacity: 0;
+  animation: message-in 0.8s var(--ease) forwards;
+}
+
+.message--user {
+  align-self: flex-end;
+  text-align: right;
+  opacity: 0;
+  color: var(--color-text);
+}
+
+.message--abd {
+  align-self: flex-start;
+  border-left: 1px solid var(--color-line);
+  padding-left: 2vw;
+}
+
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 0.9;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================
+   Contrôles
+   ============================================================ */
+
+.app__controls {
+  display: flex;
+  align-items: center;
+  gap: 3vw;
+}
+
+.control--mic {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--color-line);
+  border-radius: 50%;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.4s var(--ease);
+}
+
+.control--mic:hover {
+  border-color: var(--color-text);
+}
+
+.control--mic.is-listening .control__ring {
+  position: absolute;
+  inset: -1px;
+  border: 1px solid var(--color-text);
+  border-radius: 50%;
+  animation: ring-pulse 1.6s var(--ease) infinite;
+}
+
+@keyframes ring-pulse {
+  0%   { transform: scale(1);   opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+.control__label {
+  font-size: 0.55rem;
+  font-weight: 300;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.control--form {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--color-line);
+  transition: border-color 0.4s var(--ease);
+}
+
+.control--form:focus-within {
+  border-color: var(--color-text);
+}
+
+.control__input {
+  flex: 1;
+  padding: 1.5vh 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text);
+  font-family: var(--font-stack);
+  font-size: 0.9rem;
+  font-weight: 300;
+  letter-spacing: 0.05em;
+}
+
+.control__input::placeholder {
+  color: var(--color-text);
+  opacity: 0.25;
+}
+
+.control__send {
+  background: transparent;
+  border: none;
+  color: var(--color-text);
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.4s var(--ease);
+}
+
+.control__send:hover {
+  opacity: 1;
+}
