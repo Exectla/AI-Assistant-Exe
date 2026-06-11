@@ -12,15 +12,16 @@
   --accent-cyan: #41E0FF;
   --accent-amber: #FF8A3C;
 
-  /* Liquid Glass : verre épais, flou profond saturé, tranche spéculaire */
-  --glass-bg: rgba(255, 255, 255, 0.04);
-  --glass-border: rgba(255, 255, 255, 0.3);
-  --glass-filter: blur(40px) saturate(150%);
-  --glass-radius: 40px;
+  /* Liquid Glass v2 : verre optique lourd, tridimensionnel et fluide.
+     Tranche supérieure éclairée, tranche inférieure ombrée. */
+  --glass-bg: rgba(255, 255, 255, 0.01);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --glass-filter: blur(60px) saturate(220%) brightness(105%);
+  --glass-radius: 36px;
   --glass-shadow:
-    0 24px 70px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    inset 0 0 28px rgba(255, 255, 255, 0.05);
+    0 4px 30px rgba(0, 0, 0, 0.4),
+    inset 0 1px 2px rgba(255, 255, 255, 0.4),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.2);
 
   --pad-v: 9vh;
   --pad-h: 11vw;
@@ -376,12 +377,10 @@ body {
   padding: 1.4vh 1.8vw;
   border-radius: 26px;
   background: var(--glass-bg);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid var(--glass-border);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
-  box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow: var(--glass-shadow);
 }
 
 .message--abd {
@@ -546,13 +545,10 @@ body {
   transform: translate(-50%, -50%);
   width: 94vw;
   height: 2px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--glass-border);
   border-radius: var(--glass-radius);
-  background: rgba(255, 255, 255, 0.012);
-  box-shadow:
-    0 24px 70px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    inset 0 0 60px rgba(255, 255, 255, 0.03);
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
   pointer-events: none;
@@ -587,14 +583,12 @@ body {
   flex-direction: column;
   gap: 0.5vh;
   padding: 1.8vh 1.6vw;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--glass-border);
   border-radius: 28px;
   background: var(--glass-bg);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
-  box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow: var(--glass-shadow);
   font-size: 0.68rem;
   font-weight: 300;
   letter-spacing: 0.12em;
@@ -650,8 +644,8 @@ body {
   gap: 1.4vh;
   padding: 3vh 1.8vw;
   border-radius: var(--glass-radius);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
   box-shadow: var(--glass-shadow);
@@ -802,4 +796,137 @@ body {
 .reader__send:hover {
   opacity: 1;
   transform: translateX(3px);
+}
+
+/* ============================================================
+   Protocole de scan biométrique
+   ============================================================ */
+
+.scan {
+  position: fixed;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6vh 4vw;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity 0.45s var(--ease);
+}
+
+.scan--open {
+  opacity: 1;
+}
+
+.scan__center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2vh;
+}
+
+.scan__viewport {
+  position: relative;
+  width: 38vw;
+  max-width: 560px;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--glass-radius);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-shadow);
+  transform: scale(0.92);
+  transition: transform 0.7s var(--ease-spring);
+}
+
+.scan--open .scan__viewport {
+  transform: scale(1);
+}
+
+/* Miroir selfie : le flux ET le maillage sont retournés ensemble,
+   l'alignement des 468 points reste donc parfait. */
+.scan__video,
+.scan__mesh {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(-1);
+}
+
+.scan__video {
+  object-fit: cover;
+  filter: grayscale(1) brightness(1.1) contrast(1.05);
+  opacity: 0.8;
+}
+
+/* Teinte monochrome cyan translucide sur le flux */
+.scan__tint {
+  position: absolute;
+  inset: 0;
+  background: rgba(90, 200, 255, 0.16);
+  mix-blend-mode: color;
+  pointer-events: none;
+}
+
+/* Balayage vertical lent du scanner */
+.scan__sweep {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 18%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(150, 230, 255, 0.10),
+    transparent
+  );
+  animation: scan-sweep 3.2s var(--ease) infinite;
+  pointer-events: none;
+}
+
+@keyframes scan-sweep {
+  0%   { top: -20%; }
+  100% { top: 102%; }
+}
+
+.scan__caption {
+  font-size: 0.6rem;
+  font-weight: 300;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+/* Colonnes de données cryptographiques */
+.scan__feed {
+  width: 16vw;
+  max-height: 70vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5vh;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  color: rgba(160, 225, 255, 0.5);
+  mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
+}
+
+.scan__feed--right {
+  text-align: right;
+}
+
+.scan__feed span {
+  animation: feed-in 0.4s var(--ease) forwards;
+  opacity: 0;
+}
+
+@keyframes feed-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }

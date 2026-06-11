@@ -1,17 +1,18 @@
-"""A.B.D. — Moteur de vision gestuelle (MediaPipe Hands).
+"""A.B.D. — Moteur de vision gestuelle (MediaPipe Hands + Face Mesh).
 
-Capture la webcam côté serveur, détecte le signe "V" (index et majeur
-levés, annulaire et auriculaire repliés) avec un debounce de 0,5 s, et
-publie la position de la main pour le curseur spatial et la parallaxe.
+Capture la webcam côté serveur et fournit :
+  - le signe "V" (debounce 0,5 s) — déploiement de l'ordinateur spatial ;
+  - la pince pouce/index (distance euclidienne 3D, point médian publié
+    pour une sélection chirurgicale des nœuds) ;
+  - le geste "OK" (cercle pouce/index, trois doigts déployés, maintien
+    0,8 s) — protocole de scan biométrique ;
+  - en mode scan : flux JPEG de la caméra, 468 points du visage
+    (Face Mesh) et squelette complet des mains, en temps réel.
 
-Compatible avec les deux générations de MediaPipe :
-  - API héritée ``mediapipe.solutions.hands`` (anciennes versions) ;
-  - API "Tasks" ``HandLandmarker`` (versions récentes / Python 3.13+),
-    avec téléchargement automatique du modèle au premier lancement.
-
-Module entièrement optionnel : si `mediapipe` n'est pas installé ou
-qu'aucune caméra n'est disponible, l'application fonctionne normalement
-(le geste est remplacé par la touche V au clavier).
+Compatible avec les deux générations de MediaPipe (API héritée
+``solutions`` et API "Tasks", modèles auto-téléchargés). Module
+entièrement optionnel : sans caméra ni MediaPipe, l'application
+fonctionne au clavier.
 """
 
 import logging
@@ -24,50 +25,87 @@ from pathlib import Path
 
 logger = logging.getLogger("abd.vision")
 
-# Debounce : maintien stable requis avant déclenchement, puis temps de
-# relâche minimal avant de pouvoir re-déclencher.
+# Debounce du signe V : maintien stable requis avant déclenchement.
 HOLD_SECONDS = 0.5
+# Debounce du geste OK (protocole de scan) : maintien plus long.
+OK_HOLD_SECONDS = 0.8
 RELEASE_SECONDS = 0.4
+
+# Pince : distance euclidienne 3D pouce(4)/index(8). Plancher absolu de
+# la spec (0.03) + adaptation à la taille apparente de la main pour
+# rester utilisable loin de la caméra.
+PINCH_DIST_3D = 0.03
+PINCH_RELATIVE = 0.30
 
 CAPTURE_WIDTH = 640
 CAPTURE_HEIGHT = 360
 CAPTURE_FPS = 30
 
-# Modèle de l'API Tasks (~8 Mo), téléchargé une seule fois puis mis en cache.
-MODEL_URL = (
+SCAN_JPEG_WIDTH = 480
+SCAN_JPEG_QUALITY = 70
+
+HAND_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
     "hand_landmarker/float16/1/hand_landmarker.task"
 )
+FACE_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+    "face_landmarker/float16/1/face_landmarker.task"
+)
+
+
+# ----------------------------------------------------------------------
+# Géométrie des gestes
+# ----------------------------------------------------------------------
+
+def _dist3(a, b) -> float:
+    dx = a.x - b.x
+    dy = a.y - b.y
+    dz = getattr(a, "z", 0.0) - getattr(b, "z", 0.0)
+    return (dx * dx + dy * dy + dz * dz) ** 0.5
+
+
+def _hand_size(landmarks) -> float:
+    """Taille apparente : poignet (0) → base du majeur (9)."""
+    return _dist3(landmarks[0], landmarks[9])
+
+
+def thumb_index_touching(landmarks) -> bool:
+    """Pouce et index joints — distance euclidienne 3D (spec : < 0.03)."""
+    threshold = max(PINCH_DIST_3D, _hand_size(landmarks) * PINCH_RELATIVE)
+    return _dist3(landmarks[4], landmarks[8]) < threshold
+
+
+def fingers_extended(landmarks) -> bool:
+    """Majeur, annulaire et auriculaire entièrement déployés."""
+    return (
+        landmarks[12].y < landmarks[10].y
+        and landmarks[16].y < landmarks[14].y
+        and landmarks[20].y < landmarks[18].y
+    )
 
 
 def is_pinch(landmarks) -> bool:
-    """Pince : pouce (4) et index (8) joints.
+    """Pince : pouce/index joints, autres doigts non déployés (≠ OK)."""
+    return thumb_index_touching(landmarks) and not fingers_extended(landmarks)
 
-    Le seuil est relatif à la taille de la main (distance poignet 0 →
-    base du majeur 9) pour rester stable quelle que soit la distance
-    à la caméra.
-    """
-    dx = landmarks[4].x - landmarks[8].x
-    dy = landmarks[4].y - landmarks[8].y
-    pinch_dist = (dx * dx + dy * dy) ** 0.5
 
-    hx = landmarks[0].x - landmarks[9].x
-    hy = landmarks[0].y - landmarks[9].y
-    hand_size = (hx * hx + hy * hy) ** 0.5
+def is_ok_sign(landmarks) -> bool:
+    """Geste "OK" : cercle pouce/index + trois doigts déployés."""
+    return thumb_index_touching(landmarks) and fingers_extended(landmarks)
 
-    if hand_size < 1e-5:
-        return False
-    return pinch_dist < hand_size * 0.45
+
+def pinch_midpoint(landmarks) -> tuple:
+    """Point central exact entre le pouce (4) et l'index (8) — le
+    "rayon" de sélection part de ce point précis."""
+    return (
+        (landmarks[4].x + landmarks[8].x) / 2.0,
+        (landmarks[4].y + landmarks[8].y) / 2.0,
+    )
 
 
 def is_v_sign(landmarks) -> bool:
-    """Détection stricte du signe "V" (Peace).
-
-    Index (8) et majeur (12) tendus : leur extrémité est plus haute à
-    l'écran (Y inférieur) que leur articulation PIP respective (6, 10).
-    Annulaire (16) et auriculaire (20) repliés : extrémité plus basse
-    (Y supérieur) que leur PIP (14, 18).
-    """
+    """Signe "V" : index/majeur tendus, annulaire/auriculaire repliés."""
     return (
         landmarks[8].y < landmarks[6].y
         and landmarks[12].y < landmarks[10].y
@@ -76,31 +114,30 @@ def is_v_sign(landmarks) -> bool:
     )
 
 
+# ----------------------------------------------------------------------
+# Modèles et adaptateurs MediaPipe
+# ----------------------------------------------------------------------
+
 def _model_dir() -> Path:
-    """Dossier de cache du modèle (à côté de l'exécutable en mode gelé)."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent / "models"
     return Path(__file__).resolve().parent / "models"
 
 
-def _ensure_model() -> Path:
-    """Télécharge hand_landmarker.task au premier usage, puis le réutilise."""
-    path = _model_dir() / "hand_landmarker.task"
-    if path.is_file() and path.stat().st_size > 1_000_000:
+def _ensure_model(url: str, filename: str) -> Path:
+    path = _model_dir() / filename
+    if path.is_file() and path.stat().st_size > 500_000:
         return path
-
     path.parent.mkdir(parents=True, exist_ok=True)
-    logger.info("Téléchargement du modèle de détection de main (~8 Mo)…")
+    logger.info("Téléchargement du modèle %s…", filename)
     tmp = path.with_suffix(".tmp")
-    urllib.request.urlretrieve(MODEL_URL, tmp)
+    urllib.request.urlretrieve(url, tmp)
     tmp.replace(path)
     logger.info("Modèle enregistré : %s", path)
     return path
 
 
 class _LegacyHandsAdapter:
-    """API héritée : mediapipe.solutions.hands (mediapipe ≤ 0.10.x)."""
-
     def __init__(self, mp_module) -> None:
         self._hands = mp_module.solutions.hands.Hands(
             static_image_mode=False,
@@ -121,8 +158,6 @@ class _LegacyHandsAdapter:
 
 
 class _TasksHandsAdapter:
-    """API moderne : mediapipe.tasks HandLandmarker (Python 3.13+)."""
-
     def __init__(self, mp_module) -> None:
         from mediapipe.tasks import python as tasks_python
         from mediapipe.tasks.python import vision as tasks_vision
@@ -130,7 +165,9 @@ class _TasksHandsAdapter:
         self._mp = mp_module
         options = tasks_vision.HandLandmarkerOptions(
             base_options=tasks_python.BaseOptions(
-                model_asset_path=str(_ensure_model())
+                model_asset_path=str(
+                    _ensure_model(HAND_MODEL_URL, "hand_landmarker.task")
+                )
             ),
             running_mode=tasks_vision.RunningMode.VIDEO,
             num_hands=1,
@@ -140,9 +177,7 @@ class _TasksHandsAdapter:
         self._landmarker = tasks_vision.HandLandmarker.create_from_options(options)
 
     def detect(self, rgb_frame, timestamp_ms: int):
-        image = self._mp.Image(
-            image_format=self._mp.ImageFormat.SRGB, data=rgb_frame
-        )
+        image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb_frame)
         result = self._landmarker.detect_for_video(image, timestamp_ms)
         if result.hand_landmarks:
             return result.hand_landmarks[0]
@@ -152,20 +187,79 @@ class _TasksHandsAdapter:
         self._landmarker.close()
 
 
-def _create_adapter(mp_module):
-    """Choisit l'API disponible dans la version de MediaPipe installée."""
+class _LegacyFaceAdapter:
+    def __init__(self, mp_module) -> None:
+        self._mesh = mp_module.solutions.face_mesh.FaceMesh(
+            static_image_mode=False,
+            max_num_faces=1,
+            refine_landmarks=False,
+            min_detection_confidence=0.6,
+            min_tracking_confidence=0.5,
+        )
+
+    def detect(self, rgb_frame, _timestamp_ms: int):
+        result = self._mesh.process(rgb_frame)
+        if result.multi_face_landmarks:
+            return result.multi_face_landmarks[0].landmark
+        return None
+
+    def close(self) -> None:
+        self._mesh.close()
+
+
+class _TasksFaceAdapter:
+    def __init__(self, mp_module) -> None:
+        from mediapipe.tasks import python as tasks_python
+        from mediapipe.tasks.python import vision as tasks_vision
+
+        self._mp = mp_module
+        options = tasks_vision.FaceLandmarkerOptions(
+            base_options=tasks_python.BaseOptions(
+                model_asset_path=str(
+                    _ensure_model(FACE_MODEL_URL, "face_landmarker.task")
+                )
+            ),
+            running_mode=tasks_vision.RunningMode.VIDEO,
+            num_faces=1,
+        )
+        self._landmarker = tasks_vision.FaceLandmarker.create_from_options(options)
+
+    def detect(self, rgb_frame, timestamp_ms: int):
+        image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb_frame)
+        result = self._landmarker.detect_for_video(image, timestamp_ms)
+        if result.face_landmarks:
+            return result.face_landmarks[0]
+        return None
+
+    def close(self) -> None:
+        self._landmarker.close()
+
+
+def _create_hands_adapter(mp_module):
     if hasattr(mp_module, "solutions") and hasattr(mp_module.solutions, "hands"):
-        logger.info("MediaPipe : API héritée (solutions.hands)")
+        logger.info("MediaPipe mains : API héritée (solutions.hands)")
         return _LegacyHandsAdapter(mp_module)
-    logger.info("MediaPipe : API Tasks (HandLandmarker)")
+    logger.info("MediaPipe mains : API Tasks (HandLandmarker)")
     return _TasksHandsAdapter(mp_module)
 
+
+def _create_face_adapter(mp_module):
+    if hasattr(mp_module, "solutions") and hasattr(mp_module.solutions, "face_mesh"):
+        logger.info("MediaPipe visage : API héritée (solutions.face_mesh)")
+        return _LegacyFaceAdapter(mp_module)
+    logger.info("MediaPipe visage : API Tasks (FaceLandmarker)")
+    return _TasksFaceAdapter(mp_module)
+
+
+# ----------------------------------------------------------------------
+# Moteur
+# ----------------------------------------------------------------------
 
 class GestureEngine:
     """Boucle de capture dans un thread dédié.
 
-    État partagé sous verrou : position de main la plus récente et file
-    d'événements gestuels — consommés par le WebSocket /ws/vision.
+    État partagé sous verrou, consommé par /ws/vision et
+    /api/vision/frame.
     """
 
     def __init__(self) -> None:
@@ -176,13 +270,17 @@ class GestureEngine:
 
         self.available = False
         self.reason = "non démarré"
-        self.hand = {"present": False, "x": 0.5, "y": 0.5}
+        self.hand = {"present": False, "x": 0.5, "y": 0.5, "pinch": False}
         self.events: deque = deque(maxlen=16)
+
+        # Protocole de scan biométrique
+        self.scan_active = False
+        self.scan = {"face": [], "hands": []}
+        self.frame_jpeg: bytes | None = None
 
     # ----- cycle de vie -------------------------------------------------
 
     def acquire(self) -> None:
-        """Un client WebSocket se connecte : démarre la capture si besoin."""
         with self._lock:
             self._clients += 1
             if not self._running:
@@ -191,13 +289,21 @@ class GestureEngine:
                 self._thread.start()
 
     def release(self) -> None:
-        """Un client se déconnecte : coupe la caméra quand plus personne n'écoute."""
         with self._lock:
             self._clients = max(0, self._clients - 1)
             if self._clients == 0:
                 self._running = False
+                self.scan_active = False
 
-    # ----- accès thread-safe pour le WebSocket --------------------------
+    def set_scan(self, active: bool) -> None:
+        with self._lock:
+            self.scan_active = bool(active)
+            if not active:
+                self.scan = {"face": [], "hands": []}
+                self.frame_jpeg = None
+        logger.info("Scan biométrique %s", "ACTIVÉ" if active else "désactivé")
+
+    # ----- accès thread-safe --------------------------------------------
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -208,7 +314,16 @@ class GestureEngine:
                 "reason": self.reason,
                 "hand": dict(self.hand),
                 "events": events,
+                "scan_active": self.scan_active,
+                "scan": {
+                    "face": self.scan["face"],
+                    "hands": self.scan["hands"],
+                },
             }
+
+    def latest_frame(self) -> bytes | None:
+        with self._lock:
+            return self.frame_jpeg
 
     def _set_unavailable(self, reason: str) -> None:
         with self._lock:
@@ -221,26 +336,21 @@ class GestureEngine:
 
     def _loop(self) -> None:
         capture = None
-        adapter = None
+        hands = None
+        face = None
         try:
             try:
                 import cv2
             except ImportError:
-                self._set_unavailable(
-                    "module cv2 manquant (pip install opencv-python)"
-                )
+                self._set_unavailable("module cv2 manquant (pip install opencv-python)")
                 return
             try:
                 import mediapipe as mp
             except ImportError:
-                self._set_unavailable(
-                    "module mediapipe manquant (pip install mediapipe)"
-                )
+                self._set_unavailable("module mediapipe manquant (pip install mediapipe)")
                 return
 
-            backend = (
-                cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_ANY
-            )
+            backend = cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_ANY
             capture = cv2.VideoCapture(0, backend)
             capture.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_WIDTH)
             capture.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_HEIGHT)
@@ -252,7 +362,7 @@ class GestureEngine:
                 )
                 return
 
-            adapter = _create_adapter(mp)
+            hands = _create_hands_adapter(mp)
 
             with self._lock:
                 self.available = True
@@ -260,72 +370,133 @@ class GestureEngine:
             logger.info("Vision gestuelle active (MediaPipe Hands, caméra 0)")
 
             origin = time.monotonic()
-            v_since = None      # début du maintien du signe V
-            fired = False       # déjà déclenché pour ce maintien
-            released_at = 0.0   # instant de la dernière relâche
-            pinch_frames = 0    # frames consécutives en pince
+            v_since = None
+            v_fired = False
+            v_released_at = 0.0
+            ok_since = None
+            ok_fired = False
+            ok_released_at = 0.0
+            pinch_frames = 0
             pinch_active = False
 
             while True:
                 with self._lock:
                     if not self._running:
                         break
+                    scan_on = self.scan_active
 
-                ok, frame = capture.read()
-                if not ok:
+                ok_read, frame = capture.read()
+                if not ok_read:
                     time.sleep(0.05)
                     continue
 
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 now = time.monotonic()
-                landmarks = adapter.detect(rgb, int((now - origin) * 1000))
+                stamp = int((now - origin) * 1000)
+                landmarks = hands.detect(rgb, stamp)
 
                 present = landmarks is not None
                 hand_x, hand_y = 0.5, 0.5
-                v_now = False
-                pinch_now = False
+                v_now = pinch_now = ok_now = False
+                mid = (0.5, 0.5)
 
                 if present:
-                    # Paume (repère 9), X miroir pour un contrôle naturel
                     hand_x = 1.0 - landmarks[9].x
                     hand_y = landmarks[9].y
                     v_now = is_v_sign(landmarks)
                     pinch_now = is_pinch(landmarks)
+                    ok_now = is_ok_sign(landmarks)
+                    mid = pinch_midpoint(landmarks)
 
-                # Pince : 2 frames stables avant déclenchement (anti-bruit),
-                # un seul événement par fermeture de pince.
+                # --- Signe V : maintien 0,5 s ---
+                if v_now:
+                    if v_since is None:
+                        v_since = now
+                    if (
+                        not v_fired
+                        and now - v_since >= HOLD_SECONDS
+                        and now - v_released_at >= RELEASE_SECONDS
+                    ):
+                        v_fired = True
+                        with self._lock:
+                            self.events.append({"type": "gesture", "name": "v_sign"})
+                        logger.info("Signe V validé")
+                else:
+                    if v_fired:
+                        v_released_at = now
+                    v_since = None
+                    v_fired = False
+
+                # --- Geste OK : maintien 0,8 s → scan biométrique ---
+                if ok_now:
+                    if ok_since is None:
+                        ok_since = now
+                    if (
+                        not ok_fired
+                        and now - ok_since >= OK_HOLD_SECONDS
+                        and now - ok_released_at >= RELEASE_SECONDS
+                    ):
+                        ok_fired = True
+                        with self._lock:
+                            self.events.append({"type": "gesture", "name": "ok_sign"})
+                        logger.info("Geste OK validé (maintenu %.2f s)", now - ok_since)
+                else:
+                    if ok_fired:
+                        ok_released_at = now
+                    ok_since = None
+                    ok_fired = False
+
+                # --- Pince : sélection chirurgicale au point médian ---
                 if pinch_now:
                     pinch_frames += 1
                     if pinch_frames >= 2 and not pinch_active:
                         pinch_active = True
                         with self._lock:
-                            self.events.append(
-                                {"type": "gesture", "name": "pinch"}
-                            )
+                            self.events.append({
+                                "type": "gesture",
+                                "name": "pinch",
+                                "x": round(1.0 - mid[0], 4),
+                                "y": round(mid[1], 4),
+                            })
                 else:
                     pinch_frames = 0
                     pinch_active = False
 
-                if v_now:
-                    if v_since is None:
-                        v_since = now
-                    held = now - v_since
-                    if (
-                        not fired
-                        and held >= HOLD_SECONDS
-                        and now - released_at >= RELEASE_SECONDS
-                    ):
-                        fired = True
-                        with self._lock:
-                            self.events.append(
-                                {"type": "gesture", "name": "v_sign"}
-                            )
-                        logger.info("Signe V validé (maintenu %.2f s)", held)
-                else:
-                    if fired:
-                        released_at = now
-                    v_since = None
-                    fired = False
+                # --- Mode scan : visage 468 points + main complète + flux ---
+                if scan_on:
+                    if face is None:
+                        try:
+                            face = _create_face_adapter(mp)
+                        except Exception as exc:
+                            logger.error("Face Mesh indisponible : %s", exc)
+                            face = False  # n'essaie plus
+                    face_points = []
+                    if face:
+                        face_lm = face.detect(rgb, stamp)
+                        if face_lm:
+                            face_points = [
+                                [round(p.x, 3), round(p.y, 3)] for p in face_lm
+                            ]
+                    hand_points = []
+                    if present:
+                        hand_points = [
+                            [round(p.x, 3), round(p.y, 3)] for p in landmarks
+                        ]
+
+                    scale = SCAN_JPEG_WIDTH / frame.shape[1]
+                    small = cv2.resize(frame, None, fx=scale, fy=scale)
+                    ok_enc, encoded = cv2.imencode(
+                        ".jpg", small,
+                        [int(cv2.IMWRITE_JPEG_QUALITY), SCAN_JPEG_QUALITY],
+                    )
+
+                    with self._lock:
+                        self.scan = {
+                            "face": face_points,
+                            "hands": [hand_points] if hand_points else [],
+                        }
+                        if ok_enc:
+                            self.frame_jpeg = encoded.tobytes()
 
                 with self._lock:
                     self.hand = {
@@ -342,16 +513,15 @@ class GestureEngine:
                 self.reason = "caméra arrêtée"
             logger.info("Vision gestuelle arrêtée")
         except Exception as exc:
-            # Quoi qu'il arrive, le moteur signale la cause exacte au lieu
-            # de mourir silencieusement (et la caméra est toujours libérée).
             logger.exception("Échec du moteur de vision")
             self._set_unavailable(f"{type(exc).__name__} : {exc}")
         finally:
-            if adapter is not None:
-                try:
-                    adapter.close()
-                except Exception:
-                    pass
+            for adapter in (hands, face):
+                if adapter:
+                    try:
+                        adapter.close()
+                    except Exception:
+                        pass
             if capture is not None:
                 capture.release()
 
