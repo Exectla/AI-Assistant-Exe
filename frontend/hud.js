@@ -53,8 +53,11 @@ class SpatialHUD {
     this.canvas = deps.canvas;
     this.cursor = deps.cursor;
     this.audio = deps.audio;
+    this.apiBase = deps.apiBase;
     this.historyProvider = deps.historyProvider;
     this.kernelProvider = deps.kernelProvider;
+    this.onDocumentOpen = null;
+    this.onDocumentClose = null;
 
     this.state = "idle"; // idle | deploying | open | closing
     this.ctx = this.canvas.getContext("2d");
@@ -78,6 +81,18 @@ class SpatialHUD {
         this.handTarget.y = event.clientY / window.innerHeight;
       }
     });
+
+    /* Repli souris : le clic vaut pince (hors panneau de lecture) */
+    this.root.addEventListener("click", (event) => {
+      if (!event.target.closest(".reader")) {
+        this.pinch();
+      }
+    });
+
+    const closeButton = document.getElementById("reader-close");
+    if (closeButton) {
+      closeButton.addEventListener("click", () => this.closeReader());
+    }
   }
 
   toggle() {
@@ -164,6 +179,7 @@ class SpatialHUD {
     }
     this.state = "closing";
     this.stopClock();
+    this.closeReader();
 
     this.root.classList.remove("hud--open"); /* fondu sortie 0.3 s (CSS) */
     this.audio.playHudCollapse();
@@ -249,6 +265,113 @@ class SpatialHUD {
         0.08,
       ]);
     }
+
+    /* Spatial RAG : IRIS_Database — les nœuds se matérialisent dès
+       que l'index arrive (chargement asynchrone, non bloquant). */
+    this.loadDatabase();
+  }
+
+  async loadDatabase() {
+    try {
+      const response = await fetch(`${this.apiBase}/api/rag/index`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const index = await response.json();
+
+      for (const folder of index.folders) {
+        const dir = this.randomDirection();
+        const folderR = 1.25;
+        const folderPos = [dir[0] * folderR, dir[1] * folderR, dir[2] * folderR];
+        this.nodes.push({
+          label: folder.name.replace(/_/g, " "),
+          p: folderPos,
+          size: 3.6,
+          kind: "folder",
+        });
+        const folderIndex = this.nodes.length - 1;
+        this.edges.push([0, folderIndex, 0.3]);
+
+        for (const file of folder.files) {
+          const jitter = this.randomDirection();
+          const fileR = folderR + 0.5 + Math.random() * 0.25;
+          this.nodes.push({
+            label: file.name,
+            p: [
+              dir[0] * fileR + jitter[0] * 0.28,
+              dir[1] * fileR + jitter[1] * 0.28,
+              dir[2] * fileR + jitter[2] * 0.28,
+            ],
+            size: 2.4,
+            kind: "file",
+            file,
+          });
+          this.edges.push([folderIndex, this.nodes.length - 1, 0.24]);
+        }
+      }
+    } catch (error) {
+      console.error("[A.B.D.] Spatial RAG : index inaccessible —", error.message);
+    }
+  }
+
+  /* ----------------------------------------------------------
+     Pince — ouvre le document survolé dans le panneau de verre
+     ---------------------------------------------------------- */
+
+  pinch() {
+    if (this.state !== "open" || this.hovered === null) {
+      return;
+    }
+    const node = this.nodes[this.hovered];
+    if (node.kind === "file") {
+      this.openReader(node);
+    }
+  }
+
+  async openReader(node) {
+    const reader = document.getElementById("reader");
+    const title = document.getElementById("reader-title");
+    const body = document.getElementById("reader-body");
+    const answers = document.getElementById("reader-answer");
+
+    title.textContent = node.label;
+    body.textContent = "Chargement…";
+    answers.innerHTML = "";
+    reader.hidden = false;
+    reader.classList.add("reader--open");
+    this.audio.playClick();
+
+    try {
+      const response = await fetch(
+        `${this.apiBase}/api/rag/file?path=${encodeURIComponent(node.file.path)}`
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        body.textContent = payload.detail || `Erreur HTTP ${response.status}`;
+        return;
+      }
+      const doc = await response.json();
+      body.textContent =
+        (doc.content || "(document vide)") +
+        (doc.truncated ? "\n\n[… document tronqué …]" : "");
+
+      if (this.onDocumentOpen) {
+        this.onDocumentOpen(doc);
+      }
+    } catch (error) {
+      body.textContent = `Lecture impossible : ${error.message}`;
+    }
+  }
+
+  closeReader() {
+    const reader = document.getElementById("reader");
+    if (reader && !reader.hidden) {
+      reader.hidden = true;
+      reader.classList.remove("reader--open");
+      if (this.onDocumentClose) {
+        this.onDocumentClose();
+      }
+    }
   }
 
   randomDirection() {
@@ -330,12 +453,12 @@ class SpatialHUD {
     }
     this.cursor.classList.toggle("hud__cursor--lock", this.hovered !== null);
 
-    /* Arêtes */
+    /* Arêtes — filaments de verre dépoli */
     for (const [a, b, alpha] of this.edges) {
       const pa = projected[a];
       const pb = projected[b];
       const depthAlpha = alpha * Math.min(pa.depth, pb.depth) * 0.7;
-      ctx.strokeStyle = `rgba(65, 224, 255, ${depthAlpha.toFixed(3)})`;
+      ctx.strokeStyle = `rgba(205, 225, 255, ${depthAlpha.toFixed(3)})`;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(pa.x, pa.y);
@@ -353,30 +476,47 @@ class SpatialHUD {
       const r = node.size * proj.depth;
       const isHovered = i === this.hovered;
 
+      /* Goutte de cristal : halo doux + cœur lumineux + reflet spéculaire */
       ctx.beginPath();
       ctx.arc(proj.x, proj.y, r, 0, Math.PI * 2);
       if (isHovered) {
-        ctx.fillStyle = "rgba(255, 138, 60, 0.95)";
-        ctx.shadowColor = "rgba(255, 138, 60, 0.8)";
-        ctx.shadowBlur = 18;
+        ctx.fillStyle = "rgba(255, 235, 215, 0.95)";
+        ctx.shadowColor = "rgba(255, 220, 190, 0.8)";
+        ctx.shadowBlur = 20;
       } else if (node.kind === "core") {
-        ctx.fillStyle = "rgba(190, 240, 255, 0.95)";
-        ctx.shadowColor = "rgba(65, 224, 255, 0.7)";
-        ctx.shadowBlur = 14;
+        ctx.fillStyle = "rgba(245, 250, 255, 0.95)";
+        ctx.shadowColor = "rgba(220, 235, 255, 0.7)";
+        ctx.shadowBlur = 16;
+      } else if (node.kind === "folder") {
+        ctx.fillStyle = `rgba(235, 244, 255, ${(0.85 * proj.depth * 0.6).toFixed(3)})`;
+        ctx.shadowColor = "rgba(220, 235, 255, 0.4)";
+        ctx.shadowBlur = 10;
       } else {
-        const a = node.kind === "dust" ? 0.25 : 0.75;
-        ctx.fillStyle = `rgba(190, 235, 255, ${a * proj.depth * 0.6})`;
+        const a = node.kind === "dust" ? 0.22 : 0.7;
+        ctx.fillStyle = `rgba(228, 238, 252, ${(a * proj.depth * 0.6).toFixed(3)})`;
         ctx.shadowBlur = 0;
       }
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      /* Étiquettes : cœur toujours, autres au survol */
-      if (node.label && (isHovered || node.kind === "core")) {
+      /* Reflet spéculaire : pointe de lumière décalée, comme sur du verre */
+      if (node.kind !== "dust" && r > 1.6) {
+        ctx.beginPath();
+        ctx.arc(proj.x - r * 0.32, proj.y - r * 0.32, r * 0.28, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${(0.5 * proj.depth * 0.5).toFixed(3)})`;
+        ctx.fill();
+      }
+
+      /* Étiquettes : cœur et dossiers toujours, le reste au survol */
+      const showLabel =
+        node.label && (isHovered || node.kind === "core" || node.kind === "folder");
+      if (showLabel) {
         ctx.font = "300 11px Bahnschrift, 'Segoe UI', sans-serif";
         ctx.fillStyle = isHovered
-          ? "rgba(255, 200, 160, 0.95)"
-          : "rgba(255, 255, 255, 0.65)";
+          ? "rgba(255, 240, 225, 0.95)"
+          : node.kind === "folder"
+            ? "rgba(255, 255, 255, 0.45)"
+            : "rgba(255, 255, 255, 0.65)";
         ctx.textAlign = "center";
         ctx.fillText(node.label.toUpperCase(), proj.x, proj.y - r - 8);
       }

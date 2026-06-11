@@ -4,6 +4,7 @@ Démarre le backend FastAPI en arrière-plan puis ouvre l'interface dans une
 fenêtre pywebview sans bordures, thème sombre.
 """
 
+import os
 import sys
 import threading
 import time
@@ -50,6 +51,22 @@ def wait_for_backend(timeout_s: float = 15.0) -> bool:
     return False
 
 
+class SystemApi:
+    """API exposée au JavaScript via window.pywebview.api."""
+
+    def __init__(self) -> None:
+        self.window = None
+
+    def quit(self) -> None:
+        """Kill switch (touche Échap) : fermeture instantanée et propre."""
+        print("[A.B.D.] Kill switch — extinction immédiate")
+        try:
+            if self.window is not None:
+                self.window.destroy()
+        finally:
+            os._exit(0)
+
+
 def main() -> None:
     print("[A.B.D.] Démarrage du noyau…")
     backend = threading.Thread(target=start_backend, daemon=True)
@@ -64,17 +81,17 @@ def main() -> None:
             file=sys.stderr,
         )
 
+    api = SystemApi()
     window = webview.create_window(
         title="A.B.D.",
         url=INDEX_HTML.as_uri(),
-        width=1280,
-        height=800,
+        fullscreen=True,
         frameless=True,
-        easy_drag=True,
         background_color="#000000",
+        js_api=api,
     )
+    api.window = window
     webview.start(gui=None, debug=False)
-    _ = window
 
 
 if __name__ == "__main__":

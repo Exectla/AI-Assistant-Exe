@@ -202,14 +202,15 @@ void main() {
 }
 `;
 
-/* Apparence de l'orbe selon l'état du noyau */
+/* Apparence de l'orbe selon l'état du noyau — cristal "Liquid Glass" :
+   blancs glacés et reflets d'eau pure plutôt que néon. */
 const ORB_STATES = {
-  connecting: { pulse: 2.4, bright: 0.40, tint: [0.55, 0.80, 0.90] },
-  online:     { pulse: 0.9, bright: 1.00, tint: [0.45, 0.90, 1.00] },
-  listening:  { pulse: 3.4, bright: 1.15, tint: [0.60, 0.95, 1.00] },
-  thinking:   { pulse: 5.0, bright: 1.10, tint: [1.00, 0.62, 0.28] },
-  warning:    { pulse: 1.6, bright: 0.70, tint: [1.00, 0.62, 0.28] },
-  offline:    { pulse: 0.4, bright: 0.18, tint: [0.70, 0.75, 0.80] },
+  connecting: { pulse: 2.4, bright: 0.40, tint: [0.80, 0.87, 0.95] },
+  online:     { pulse: 0.9, bright: 1.00, tint: [0.93, 0.97, 1.00] },
+  listening:  { pulse: 3.4, bright: 1.15, tint: [1.00, 1.00, 1.00] },
+  thinking:   { pulse: 5.0, bright: 1.10, tint: [1.00, 0.86, 0.62] },
+  warning:    { pulse: 1.6, bright: 0.70, tint: [1.00, 0.78, 0.52] },
+  offline:    { pulse: 0.4, bright: 0.18, tint: [0.66, 0.70, 0.76] },
 };
 
 class HoloOrb {

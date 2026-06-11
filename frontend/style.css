@@ -12,9 +12,15 @@
   --accent-cyan: #41E0FF;
   --accent-amber: #FF8A3C;
 
-  --glass-bg: rgba(255, 255, 255, 0.015);
-  --glass-border: rgba(255, 255, 255, 0.05);
-  --glass-filter: blur(30px) brightness(0.7);
+  /* Liquid Glass : verre épais, flou profond saturé, tranche spéculaire */
+  --glass-bg: rgba(255, 255, 255, 0.04);
+  --glass-border: rgba(255, 255, 255, 0.3);
+  --glass-filter: blur(40px) saturate(150%);
+  --glass-radius: 40px;
+  --glass-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 0 28px rgba(255, 255, 255, 0.05);
 
   --pad-v: 9vh;
   --pad-h: 11vw;
@@ -29,6 +35,8 @@
   --boot-duration: 10s;
   /* Courbe unique de tout le système : déploiement net, arrivée longue */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Ressort souple (physique organique Apple) pour les transformations */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   --idle-opacity: 0.55;
 }
@@ -365,12 +373,15 @@ body {
 .message--user {
   align-self: flex-end;
   text-align: right;
-  padding: 1.2vh 1.5vw;
-  border-radius: 3px;
+  padding: 1.4vh 1.8vw;
+  border-radius: 26px;
   background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .message--abd {
@@ -402,13 +413,21 @@ body {
   align-items: center;
   gap: 2.5vw;
   padding: 2vh 2.5vw;
-  border-radius: 5px;
+  border-radius: var(--glass-radius);
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-shadow);
   opacity: var(--idle-opacity);
-  transition: opacity 1.2s var(--ease), border-color 1.2s var(--ease);
+  transition:
+    opacity 1.2s var(--ease),
+    border-color 1.2s var(--ease),
+    transform 0.7s var(--ease-spring);
+}
+
+.app__controls:focus-within {
+  transform: translateY(-3px);
 }
 
 .app__controls:hover,
@@ -527,12 +546,13 @@ body {
   transform: translate(-50%, -50%);
   width: 94vw;
   height: 2px;
-  border: 1px solid rgba(120, 230, 255, 0.35);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.008);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--glass-radius);
+  background: rgba(255, 255, 255, 0.012);
   box-shadow:
-    0 0 26px rgba(65, 224, 255, 0.10),
-    inset 0 0 40px rgba(65, 224, 255, 0.04);
+    0 24px 70px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 0 60px rgba(255, 255, 255, 0.03);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
   pointer-events: none;
@@ -566,12 +586,15 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.5vh;
-  padding: 1.6vh 1.4vw;
-  border: 1px solid var(--glass-border);
-  border-radius: 4px;
+  padding: 1.8vh 1.6vw;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 28px;
   background: var(--glass-bg);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
   font-size: 0.68rem;
   font-weight: 300;
   letter-spacing: 0.12em;
@@ -607,6 +630,176 @@ body {
 }
 
 .hud__cursor--lock {
-  border-color: rgba(255, 138, 60, 0.85);
-  box-shadow: 0 0 18px rgba(255, 138, 60, 0.35);
+  border-color: rgba(255, 220, 190, 0.9);
+  box-shadow: 0 0 18px rgba(255, 210, 170, 0.4);
+}
+
+/* ============================================================
+   Panneau de lecture — Liquid Glass premium
+   ============================================================ */
+
+.reader {
+  position: absolute;
+  right: 6vw;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4vh;
+  padding: 3vh 1.8vw;
+  border-radius: var(--glass-radius);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-shadow);
+  pointer-events: auto;
+  opacity: 0;
+}
+
+/* Apparition à ressort : la physique douce d'une goutte qui se pose */
+.reader--open {
+  animation: reader-pop 0.65s var(--ease-spring) forwards;
+}
+
+@keyframes reader-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.9);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+    filter: blur(0);
+  }
+}
+
+.reader__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1vw;
+}
+
+.reader__title {
+  font-size: 0.78rem;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader__close {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: transform 0.5s var(--ease-spring), background 0.5s var(--ease);
+}
+
+.reader__close:hover {
+  transform: scale(1.12);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.reader__body {
+  flex: 1;
+  min-height: 10vh;
+  max-height: 32vh;
+  overflow-y: auto;
+  font-size: 0.78rem;
+  font-weight: 300;
+  line-height: 1.75;
+  letter-spacing: 0.03em;
+  white-space: pre-wrap;
+  opacity: 0.8;
+  scrollbar-width: none;
+}
+
+.reader__body::-webkit-scrollbar {
+  display: none;
+}
+
+.reader__answers {
+  max-height: 22vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2vh;
+  scrollbar-width: none;
+}
+
+.reader__answers::-webkit-scrollbar {
+  display: none;
+}
+
+.reader__qa {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5vh;
+  animation: message-in 0.7s var(--ease) forwards;
+}
+
+.reader__q {
+  font-size: 0.72rem;
+  font-weight: 400;
+  opacity: 0.55;
+  text-align: right;
+}
+
+.reader__a {
+  font-size: 0.8rem;
+  font-weight: 300;
+  line-height: 1.7;
+  border-left: 1px solid rgba(255, 255, 255, 0.25);
+  padding-left: 1vw;
+}
+
+.reader__form {
+  display: flex;
+  align-items: center;
+  gap: 0.8vw;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 1.4vh;
+}
+
+.reader__input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text);
+  font-family: var(--font-stack);
+  font-size: 0.8rem;
+  font-weight: 300;
+}
+
+.reader__input::placeholder {
+  color: var(--color-text);
+  opacity: 0.3;
+}
+
+.reader__send {
+  background: transparent;
+  border: none;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.6s var(--ease), transform 0.5s var(--ease-spring);
+}
+
+.reader__send:hover {
+  opacity: 1;
+  transform: translateX(3px);
 }

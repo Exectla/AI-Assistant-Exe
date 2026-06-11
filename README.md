@@ -48,6 +48,30 @@ pip install mediapipe
 
 Sans webcam ou sans ce module, la touche V reste pleinement fonctionnelle.
 
+## Spatial RAG — IRIS_Database
+
+Au premier lancement, un dossier **`IRIS_Database/`** est créé à la racine
+du projet (sous-dossiers d'exemple : `Bac_SES_2026`,
+`Projet_Robots_Shenzhen`, `Checklists_A320neo`). Déposez-y vos documents
+(`.txt`, `.md`, `.pdf`…) : chacun devient un **nœud 3D** dans l'ordinateur
+spatial.
+
+Survolez un nœud avec le curseur spatial puis faites une **pince**
+(pouce + index joints) — ou un simple clic — pour ouvrir le document dans
+un panneau de verre flottant. Le contenu est chargé dans le contexte du
+noyau : posez vos questions à la voix ou au clavier, A.B.D. répond en
+s'appuyant sur ce document précis.
+
+## Contrôles
+
+| Action | Effet |
+| ------ | ----- |
+| Signe ✌️ (0,5 s) ou touche `V` | Déployer / replier l'ordinateur spatial |
+| Pince 🤏 ou clic sur un nœud | Ouvrir le document dans le panneau de lecture |
+| Touche `Échap` | **Kill switch** — extinction instantanée de l'application |
+
+L'application démarre en **plein écran strict** (fenêtre sans bordures).
+
 ## Build exécutable autonome
 
 Produit un fichier unique embarquant le backend, le lanceur et toutes les
