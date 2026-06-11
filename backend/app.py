@@ -77,6 +77,13 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage] = []
 
 
+class TTSRequest(BaseModel):
+    text: str
+
+
+TTS_VOICE = "fr-FR-HenriNeural"
+
+
 def get_client() -> Groq:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key or api_key == "votre_cle_ici":
@@ -135,6 +142,61 @@ def chat(request: ChatRequest) -> StreamingResponse:
         media_type="text/plain; charset=utf-8",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+
+@app.post("/api/tts")
+async def tts(request: TTSRequest) -> StreamingResponse:
+    """Synthèse vocale neuronale (Edge-TTS, voix fr-FR-HenriNeural).
+
+    Diffuse le MP3 au fil de la génération. Gratuit, sans clé API —
+    nécessite simplement une connexion internet.
+    """
+    try:
+        import edge_tts
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Module edge-tts manquant : pip install edge-tts",
+        ) from exc
+
+    text = request.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Texte vide.")
+
+    logger.info("Synthèse vocale (%d caractères, voix %s)", len(text), TTS_VOICE)
+    communicate = edge_tts.Communicate(text, TTS_VOICE)
+    stream = communicate.stream()
+
+    # On valide le premier fragment AVANT de répondre : une panne du
+    # service devient un 502 franc et le client bascule immédiatement
+    # sur la synthèse locale, au lieu de recevoir un 200 vide.
+    first_audio = None
+    try:
+        async for chunk in stream:
+            if chunk["type"] == "audio":
+                first_audio = chunk["data"]
+                break
+    except Exception as exc:
+        logger.error("Échec de la synthèse Edge-TTS : %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Service de synthèse vocale injoignable : {exc}",
+        ) from exc
+
+    if first_audio is None:
+        raise HTTPException(status_code=502, detail="Aucun audio produit par Edge-TTS.")
+
+    async def audio_stream():
+        yield first_audio
+        try:
+            async for chunk in stream:
+                if chunk["type"] == "audio":
+                    yield chunk["data"]
+        except Exception as exc:
+            # Coupure en cours de flux : le client jouera ce qu'il a reçu.
+            logger.error("Flux Edge-TTS interrompu : %s", exc)
+
+    return StreamingResponse(audio_stream(), media_type="audio/mpeg")
 
 
 if __name__ == "__main__":

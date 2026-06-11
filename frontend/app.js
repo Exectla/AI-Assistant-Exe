@@ -139,6 +139,156 @@ class AudioEngine {
 }
 
 /* ============================================================
+   VoiceEngine — voix neuronale Edge-TTS traitée par la Web Audio API.
+   Chaîne : source → EQ low-shelf (+5 dB @ 160 Hz, présence et
+   majesté) → convolver (réverbération métallique infime, IR
+   procédurale) → analyseur (pilote l'orbe) → sortie.
+   Bascule sur speechSynthesis locale si le service est injoignable.
+   ============================================================ */
+
+class VoiceEngine {
+  constructor(audioEngine) {
+    this.audio = audioEngine;
+    this.chain = null;
+    this.currentSource = null;
+    this.analyserData = null;
+  }
+
+  ensureChain() {
+    const ctx = this.audio.ensureContext();
+    if (this.chain) {
+      return this.chain;
+    }
+
+    const bass = ctx.createBiquadFilter();
+    bass.type = "lowshelf";
+    bass.frequency.value = 160;
+    bass.gain.value = 5;
+
+    const convolver = ctx.createConvolver();
+    convolver.buffer = this.buildImpulse(ctx);
+
+    const dry = ctx.createGain();
+    dry.gain.value = 0.88;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.14;
+
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    this.analyserData = new Uint8Array(analyser.fftSize);
+
+    /* La voix sort en pleine bande : elle ne passe PAS par le
+       passe-bas maître (réservé aux sons d'interface). */
+    bass.connect(dry);
+    dry.connect(analyser);
+    bass.connect(convolver);
+    convolver.connect(wet);
+    wet.connect(analyser);
+    analyser.connect(ctx.destination);
+
+    this.chain = { input: bass, analyser };
+    return this.chain;
+  }
+
+  /**
+   * Réponse impulsionnelle procédurale (0,35 s) : bruit en décroissance
+   * exponentielle modulé d'un très léger ring ~3,2 kHz — la teinte
+   * métallique d'une passerelle de croiseur stellaire.
+   */
+  buildImpulse(ctx) {
+    const length = Math.floor(ctx.sampleRate * 0.35);
+    const impulse = ctx.createBuffer(2, length, ctx.sampleRate);
+    for (let channel = 0; channel < 2; channel++) {
+      const data = impulse.getChannelData(channel);
+      for (let i = 0; i < length; i++) {
+        const t = i / ctx.sampleRate;
+        const ring = 0.7 + 0.3 * Math.sin(2 * Math.PI * (3200 + channel * 170) * t);
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-t * 11) * ring;
+      }
+    }
+    return impulse;
+  }
+
+  /** Volume vocal instantané (0..1) — consommé par l'orbe holographique. */
+  getLevel() {
+    if (!this.chain) {
+      return 0;
+    }
+    this.chain.analyser.getByteTimeDomainData(this.analyserData);
+    let sum = 0;
+    for (let i = 0; i < this.analyserData.length; i++) {
+      const v = (this.analyserData[i] - 128) / 128;
+      sum += v * v;
+    }
+    return Math.min(1, Math.sqrt(sum / this.analyserData.length) * 3.5);
+  }
+
+  stop() {
+    if (this.currentSource) {
+      try {
+        this.currentSource.stop();
+      } catch (_) { /* déjà arrêtée */ }
+      this.currentSource = null;
+    }
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  }
+
+  async speak(text) {
+    this.stop();
+    try {
+      const response = await fetch(`${API_BASE}/api/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const encoded = await response.arrayBuffer();
+      if (encoded.byteLength < 1024) {
+        throw new Error("flux audio vide (service TTS hors ligne ?)");
+      }
+
+      const ctx = this.audio.ensureContext();
+      const buffer = await ctx.decodeAudioData(encoded);
+      const chain = this.ensureChain();
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(chain.input);
+      source.addEventListener("ended", () => {
+        if (this.currentSource === source) {
+          this.currentSource = null;
+        }
+      });
+      source.start();
+      this.currentSource = source;
+      log(`VoiceEngine : lecture Edge-TTS (${buffer.duration.toFixed(1)} s)`);
+    } catch (error) {
+      logError(
+        `VoiceEngine : Edge-TTS indisponible (${error.message}) — ` +
+        "bascule sur la synthèse locale"
+      );
+      this.fallbackSpeak(text);
+    }
+  }
+
+  fallbackSpeak(text) {
+    if (!window.speechSynthesis) {
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "fr-FR";
+    utterance.rate = 1.0;
+    utterance.pitch = 0.9;
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
+/* ============================================================
    KernelLink — surveillance du noyau et reconnexion automatique.
    Sonde /api/health avec backoff exponentiel (1 s → 8 s max) et
    notifie l'interface à chaque transition d'état.
@@ -387,8 +537,9 @@ class UISystem {
    ============================================================ */
 
 class SpeechController {
-  constructor(uiSystem) {
+  constructor(uiSystem, voiceEngine) {
     this.ui = uiSystem;
+    this.voice = voiceEngine;
     this.micButton = document.getElementById("mic-button");
     this.recognition = null;
     this.listening = false;
@@ -434,7 +585,7 @@ class SpeechController {
       this.recognition.stop();
       this.setListening(false);
     } else {
-      window.speechSynthesis.cancel();
+      this.voice.stop();
       this.recognition.start();
       this.setListening(true);
     }
@@ -451,15 +602,7 @@ class SpeechController {
   }
 
   speak(text) {
-    if (!window.speechSynthesis) {
-      return;
-    }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "fr-FR";
-    utterance.rate = 1.0;
-    utterance.pitch = 0.9;
-    window.speechSynthesis.speak(utterance);
+    this.voice.speak(text);
   }
 }
 
@@ -471,13 +614,36 @@ document.addEventListener("DOMContentLoaded", () => {
   log("Interface initialisée — séquence d'allumage en cours");
 
   const audioEngine = new AudioEngine();
+  const voiceEngine = new VoiceEngine(audioEngine);
   const kernelLink = new KernelLink();
   const uiSystem = new UISystem(audioEngine, kernelLink);
-  const speechController = new SpeechController(uiSystem);
+  const speechController = new SpeechController(uiSystem, voiceEngine);
 
   uiSystem.init();
   speechController.init();
   kernelLink.start();
+
+  /* Couche visuelle Coruscant : chaque module se désactive proprement
+     si WebGL n'est pas disponible (l'interface CSS reste fonctionnelle). */
+  try {
+    const { HoloBackground, HoloOrb, DustField } = window.ABDVisuals;
+
+    new HoloBackground(document.getElementById("bg-canvas")).init();
+    new DustField(document.getElementById("dust-canvas")).init();
+
+    const orbContainer = document.getElementById("orb");
+    const orbActive = new HoloOrb(
+      document.getElementById("orb-canvas"),
+      orbContainer,
+      () => voiceEngine.getLevel()
+    ).init();
+    if (orbActive) {
+      orbContainer.classList.add("orb--gl");
+    }
+    log("Couche visuelle holographique active");
+  } catch (error) {
+    logError("Couche visuelle indisponible (WebGL ?) — repli CSS :", error.message);
+  }
 
   // Les navigateurs exigent un geste utilisateur avant de démarrer
   // l'AudioContext : le room tone se lance à la première interaction.
