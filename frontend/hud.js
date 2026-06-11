@@ -64,6 +64,8 @@ class SpatialHUD {
 
     this.nodes = [];
     this.edges = [];
+    this.pulses = []; /* impulsions lumineuses vers les nœuds adjacents */
+    this.lastProjected = [];
     this.rotation = 0;
     this.parallax = { x: 0, y: 0 };
 
@@ -318,11 +320,40 @@ class SpatialHUD {
      Pince — ouvre le document survolé dans le panneau de verre
      ---------------------------------------------------------- */
 
-  pinch() {
-    if (this.state !== "open" || this.hovered === null) {
+  /**
+   * Pince. Si le moteur de vision fournit le point médian exact entre
+   * le pouce et l'index, le "rayon" de sélection part de ce point
+   * précis (raycast chirurgical) ; sinon, le nœud survolé fait foi.
+   */
+  pinch(point) {
+    if (this.state !== "open") {
       return;
     }
-    const node = this.nodes[this.hovered];
+
+    let targetIndex = this.hovered;
+    if (point && this.lastProjected.length === this.nodes.length) {
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = point.x * window.innerWidth - rect.left;
+      const cy = point.y * window.innerHeight - rect.top;
+      targetIndex = null;
+      let best = 55;
+      for (let i = 0; i < this.nodes.length; i++) {
+        if (this.nodes[i].kind === "dust") {
+          continue;
+        }
+        const proj = this.lastProjected[i];
+        const d = Math.hypot(proj.x - cx, proj.y - cy);
+        if (d < best) {
+          best = d;
+          targetIndex = i;
+        }
+      }
+    }
+
+    if (targetIndex === null) {
+      return;
+    }
+    const node = this.nodes[targetIndex];
     if (node.kind === "file") {
       this.openReader(node);
     }
@@ -432,8 +463,25 @@ class SpatialHUD {
     this.cursor.style.transform =
       `translate(${cursorScreenX - 14}px, ${cursorScreenY - 14}px)`;
 
-    /* Projection de tous les nœuds */
-    const projected = this.nodes.map((node) => this.project(node.p, cw, ch));
+    /* Idle breathing : chaque nœud flotte dans le fluide — somme de
+       sinus désynchronisés (pseudo-Perlin), micro-oscillation de
+       position et d'échelle. */
+    const tNow = performance.now() / 1000;
+    const projected = this.nodes.map((node) => {
+      if (node.ph === undefined) {
+        node.ph = Math.random() * Math.PI * 2;
+        node.fr = 0.22 + Math.random() * 0.35;
+        node.glow = 0;
+      }
+      const amp = node.kind === "core" ? 0.012 : 0.035;
+      const wobbled = [
+        node.p[0] + amp * Math.sin(tNow * node.fr + node.ph),
+        node.p[1] + amp * Math.sin(tNow * node.fr * 0.83 + node.ph * 1.7),
+        node.p[2] + amp * Math.sin(tNow * node.fr * 1.21 + node.ph * 0.6),
+      ];
+      return this.project(wobbled, cw, ch);
+    });
+    this.lastProjected = projected;
 
     /* Survol : nœud le plus proche du curseur (repère canvas) */
     const canvasRect = this.canvas.getBoundingClientRect();
@@ -466,6 +514,40 @@ class SpatialHUD {
       ctx.stroke();
     }
 
+    /* Impulsions lumineuses : le nœud survolé émet vers ses voisins */
+    if (this.hovered !== null && Math.random() < 0.12 && this.pulses.length < 40) {
+      const adjacent = this.edges.filter(
+        ([a, b]) => a === this.hovered || b === this.hovered
+      );
+      if (adjacent.length) {
+        const [a, b] = adjacent[Math.floor(Math.random() * adjacent.length)];
+        this.pulses.push({
+          from: a === this.hovered ? a : b,
+          to: a === this.hovered ? b : a,
+          t: 0,
+        });
+      }
+    }
+    for (let i = this.pulses.length - 1; i >= 0; i--) {
+      const pulse = this.pulses[i];
+      pulse.t += 0.035;
+      if (pulse.t >= 1) {
+        this.pulses.splice(i, 1);
+        continue;
+      }
+      const pa = projected[pulse.from];
+      const pb = projected[pulse.to];
+      if (!pa || !pb) {
+        continue;
+      }
+      const px = pa.x + (pb.x - pa.x) * pulse.t;
+      const py = pa.y + (pb.y - pa.y) * pulse.t;
+      ctx.beginPath();
+      ctx.arc(px, py, 1.8, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(235, 248, 255, ${(0.85 * (1 - pulse.t)).toFixed(3)})`;
+      ctx.fill();
+    }
+
     /* Nœuds (les plus lointains d'abord) */
     const order = projected
       .map((p, i) => i)
@@ -473,16 +555,23 @@ class SpatialHUD {
     for (const i of order) {
       const node = this.nodes[i];
       const proj = projected[i];
-      const r = node.size * proj.depth;
-      const isHovered = i === this.hovered;
+
+      /* Respiration d'échelle + lueur exponentielle au survol */
+      const breathe = 1 + 0.06 * Math.sin(tNow * node.fr * 1.4 + node.ph);
+      const glowTarget = i === this.hovered ? 1 : 0;
+      node.glow += (glowTarget - node.glow) * 0.16;
+      const glowExp = (Math.exp(2.5 * node.glow) - 1) / (Math.exp(2.5) - 1);
+
+      const r = node.size * proj.depth * breathe * (1 + 0.18 * glowExp);
+      const isHovered = glowExp > 0.04;
 
       /* Goutte de cristal : halo doux + cœur lumineux + reflet spéculaire */
       ctx.beginPath();
       ctx.arc(proj.x, proj.y, r, 0, Math.PI * 2);
       if (isHovered) {
-        ctx.fillStyle = "rgba(255, 235, 215, 0.95)";
+        ctx.fillStyle = `rgba(255, 235, 215, ${(0.55 + 0.4 * glowExp).toFixed(3)})`;
         ctx.shadowColor = "rgba(255, 220, 190, 0.8)";
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 6 + 22 * glowExp;
       } else if (node.kind === "core") {
         ctx.fillStyle = "rgba(245, 250, 255, 0.95)";
         ctx.shadowColor = "rgba(220, 235, 255, 0.7)";

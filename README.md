@@ -68,6 +68,7 @@ s'appuyant sur ce document précis.
 | ------ | ----- |
 | Signe ✌️ (0,5 s) ou touche `V` | Déployer / replier l'ordinateur spatial |
 | Pince 🤏 ou clic sur un nœud | Ouvrir le document dans le panneau de lecture |
+| Geste 👌 (0,8 s) ou touche `B` | **Scan biométrique** — Face Mesh 468 points, flux caméra, nappe 30 Hz |
 | Touche `Échap` | **Kill switch** — extinction instantanée de l'application |
 
 L'application démarre en **plein écran strict** (fenêtre sans bordures).

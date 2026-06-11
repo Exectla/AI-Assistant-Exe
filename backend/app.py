@@ -238,12 +238,30 @@ def rag_file(path: str) -> dict:
         raise HTTPException(status_code=422, detail=str(exc))
 
 
+@app.get("/api/vision/frame")
+def vision_frame():
+    """Dernière image de la caméra (mode scan biométrique uniquement)."""
+    from fastapi.responses import Response
+
+    from backend.vision import get_engine
+
+    frame = get_engine().latest_frame()
+    if frame is None:
+        raise HTTPException(status_code=404, detail="Aucun flux (scan inactif).")
+    return Response(
+        content=frame,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.websocket("/ws/vision")
 async def vision_ws(websocket: WebSocket) -> None:
     """Flux temps réel de la vision gestuelle.
 
-    Émet ~30 fois/s : statut du moteur, position normalisée de la main
-    (curseur spatial + parallaxe) et événements gestuels (signe V).
+    Émet ~30 fois/s : statut, position de main, événements gestuels,
+    et — en mode scan — les 468 points du visage et le squelette des
+    mains (~15 fois/s). Reçoit les commandes client ({"type": "scan"}).
     """
     import asyncio
 
@@ -254,8 +272,17 @@ async def vision_ws(websocket: WebSocket) -> None:
     engine.acquire()
     logger.info("Client vision connecté")
 
+    async def receiver() -> None:
+        while True:
+            data = await websocket.receive_json()
+            if data.get("type") == "scan":
+                engine.set_scan(bool(data.get("active")))
+
+    receive_task = asyncio.create_task(receiver())
+
     last_status = None
     last_hand = None
+    scan_tick = 0
     try:
         while True:
             snap = engine.snapshot()
@@ -277,10 +304,21 @@ async def vision_ws(websocket: WebSocket) -> None:
             for event in snap["events"]:
                 await websocket.send_json(event)
 
+            # Données de scan : un envoi sur deux (~15 Hz, flux maîtrisé)
+            scan_tick += 1
+            if snap["scan_active"] and scan_tick % 2 == 0:
+                await websocket.send_json({
+                    "type": "scan_data",
+                    "face": snap["scan"]["face"],
+                    "hands": snap["scan"]["hands"],
+                })
+
             await asyncio.sleep(1 / 30)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
+        receive_task.cancel()
+        engine.set_scan(False)
         engine.release()
         logger.info("Client vision déconnecté")
 

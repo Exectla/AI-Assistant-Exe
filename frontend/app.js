@@ -208,6 +208,62 @@ class AudioEngine {
     thud.stop(now + 0.26);
   }
 
+  /**
+   * Nappe de scan biométrique : sub-bass hum à 30 Hz, vibrant
+   * (deux oscillateurs en battement lent + trémolo), zéro aigu.
+   */
+  startScanHum() {
+    if (this.scanHum) {
+      return;
+    }
+    const ctx = this.ensureContext();
+    const now = ctx.currentTime;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.22, now + 1.2);
+    gain.connect(this.master);
+
+    const oscillators = [];
+    for (const frequency of [30, 30.4]) {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = frequency;
+      osc.connect(gain);
+      osc.start(now);
+      oscillators.push(osc);
+    }
+
+    const tremolo = ctx.createOscillator();
+    tremolo.type = "sine";
+    tremolo.frequency.value = 1.7;
+    const tremoloDepth = ctx.createGain();
+    tremoloDepth.gain.value = 0.05;
+    tremolo.connect(tremoloDepth);
+    tremoloDepth.connect(gain.gain);
+    tremolo.start(now);
+    oscillators.push(tremolo);
+
+    this.scanHum = { gain, oscillators };
+  }
+
+  stopScanHum() {
+    if (!this.scanHum) {
+      return;
+    }
+    const ctx = this.ensureContext();
+    const now = ctx.currentTime;
+    const { gain, oscillators } = this.scanHum;
+    this.scanHum = null;
+
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+    for (const osc of oscillators) {
+      osc.stop(now + 0.8);
+    }
+  }
+
   /** Repli du HUD : remontée sub-bass douce (25 → 50 Hz). */
   playHudCollapse() {
     const ctx = this.ensureContext();
@@ -393,6 +449,16 @@ class VisionLink {
     this.onGesture = null;
     this.onHand = null;
     this.onStatus = null;
+    this.onScanData = null;
+    this.scanWanted = false;
+  }
+
+  /** Active/désactive le mode scan côté moteur (Face Mesh + flux). */
+  sendScan(active) {
+    this.scanWanted = active;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: "scan", active }));
+    }
   }
 
   start() {
@@ -411,6 +477,9 @@ class VisionLink {
     this.ws.addEventListener("open", () => {
       this.retryMs = 1000;
       log("VisionLink : canal gestuel connecté");
+      if (this.scanWanted) {
+        this.sendScan(true); /* re-synchronise après reconnexion */
+      }
     });
 
     this.ws.addEventListener("message", (event) => {
@@ -422,9 +491,11 @@ class VisionLink {
       }
       if (data.type === "gesture" && this.onGesture) {
         log(`VisionLink : geste détecté — ${data.name}`);
-        this.onGesture(data.name);
+        this.onGesture(data);
       } else if (data.type === "hand" && this.onHand) {
         this.onHand(data);
+      } else if (data.type === "scan_data" && this.onScanData) {
+        this.onScanData(data);
       } else if (data.type === "status" && this.onStatus) {
         log(`VisionLink : vision ${data.vision}` +
             (data.reason ? ` (${data.reason})` : ""));
@@ -909,11 +980,31 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   const visionLink = new VisionLink();
-  visionLink.onGesture = (name) => {
-    if (name === "v_sign") {
+
+  /* Protocole de scan biométrique (geste OK ou touche B) */
+  const scan = new window.ABDScan.BiometricScan({
+    root: document.getElementById("scan"),
+    video: document.getElementById("scan-video"),
+    mesh: document.getElementById("scan-mesh"),
+    feedLeft: document.getElementById("scan-feed-left"),
+    feedRight: document.getElementById("scan-feed-right"),
+    audio: audioEngine,
+    visionLink,
+    apiBase: API_BASE,
+  });
+  visionLink.onScanData = (data) => scan.onScanData(data);
+
+  visionLink.onGesture = (event) => {
+    if (event.name === "v_sign") {
       hud.toggle();
-    } else if (name === "pinch") {
-      hud.pinch();
+    } else if (event.name === "pinch") {
+      /* Sélection chirurgicale : le point médian pouce/index publié
+         par le moteur de vision sert de rayon de visée. */
+      hud.pinch(
+        typeof event.x === "number" ? { x: event.x, y: event.y } : null
+      );
+    } else if (event.name === "ok_sign") {
+      scan.toggle();
     }
   };
   visionLink.onHand = (hand) => hud.setHandTarget(hand);
@@ -930,6 +1021,9 @@ document.addEventListener("DOMContentLoaded", () => {
       document.activeElement === document.getElementById("reader-input");
     if (event.key.toLowerCase() === "v" && !typing) {
       hud.toggle();
+    }
+    if (event.key.toLowerCase() === "b" && !typing) {
+      scan.toggle();
     }
   });
 
