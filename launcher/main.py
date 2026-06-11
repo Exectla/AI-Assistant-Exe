@@ -52,17 +52,27 @@ def wait_for_backend(timeout_s: float = 15.0) -> bool:
 
 
 class SystemApi:
-    """API exposée au JavaScript via window.pywebview.api."""
+    """API exposée au JavaScript via window.pywebview.api.
+
+    Important : la référence à la fenêtre est PRIVÉE (préfixe _) —
+    pywebview expose et sérialise tous les attributs publics de cet
+    objet vers le JavaScript, et exposer la fenêtre native déclenche
+    une introspection récursive infinie des objets COM Windows.
+    """
 
     def __init__(self) -> None:
-        self.window = None
+        self._window = None
+
+    def _attach(self, window) -> None:
+        """Privé : non exposé au pont JavaScript."""
+        self._window = window
 
     def quit(self) -> None:
         """Kill switch (touche Échap) : fermeture instantanée et propre."""
         print("[A.B.D.] Kill switch — extinction immédiate")
         try:
-            if self.window is not None:
-                self.window.destroy()
+            if self._window is not None:
+                self._window.destroy()
         finally:
             os._exit(0)
 
@@ -90,7 +100,7 @@ def main() -> None:
         background_color="#000000",
         js_api=api,
     )
-    api.window = window
+    api._attach(window)
     webview.start(gui=None, debug=False)
 
 
