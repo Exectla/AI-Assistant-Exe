@@ -503,3 +503,110 @@ body {
   opacity: 1;
   color: var(--accent-cyan);
 }
+
+/* ============================================================
+   Ordinateur spatial — HUD plein écran
+   ============================================================ */
+
+[hidden] {
+  display: none !important;
+}
+
+.hud {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: block;
+}
+
+/* Cadre : fin, lumineux, translucide — né du morphing de l'orbe */
+.hud__frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 94vw;
+  height: 2px;
+  border: 1px solid rgba(120, 230, 255, 0.35);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.008);
+  box-shadow:
+    0 0 26px rgba(65, 224, 255, 0.10),
+    inset 0 0 40px rgba(65, 224, 255, 0.04);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  pointer-events: none;
+}
+
+/* Matérialisation : fondu net du graphe et des modules */
+.hud__graph,
+.hud__module {
+  opacity: 0;
+  transition: opacity 0.45s var(--ease);
+}
+
+.hud--open .hud__graph {
+  opacity: 1;
+}
+
+.hud--open .hud__module {
+  opacity: 0.85;
+}
+
+.hud__graph {
+  position: absolute;
+  left: 3vw;
+  top: 3vh;
+  width: 94vw;
+  height: 94vh;
+}
+
+.hud__module {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5vh;
+  padding: 1.6vh 1.4vw;
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  font-size: 0.68rem;
+  font-weight: 300;
+  letter-spacing: 0.12em;
+  pointer-events: none;
+}
+
+.hud__module-title {
+  font-size: 0.52rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+  opacity: 0.7;
+}
+
+.hud__module--tl { top: 5.5vh; left: 5vw; }
+.hud__module--tr { top: 5.5vh; right: 5vw; text-align: right; }
+.hud__module--bl { bottom: 5.5vh; left: 5vw; }
+.hud__module--br { bottom: 5.5vh; right: 5vw; text-align: right; }
+
+/* Curseur spatial — suit la main (ou la souris en repli) */
+.hud__cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(120, 230, 255, 0.65);
+  border-radius: 50%;
+  box-shadow: 0 0 14px rgba(65, 224, 255, 0.25);
+  pointer-events: none;
+  transition: border-color 0.4s var(--ease), box-shadow 0.4s var(--ease);
+  will-change: transform;
+}
+
+.hud__cursor--lock {
+  border-color: rgba(255, 138, 60, 0.85);
+  box-shadow: 0 0 18px rgba(255, 138, 60, 0.35);
+}

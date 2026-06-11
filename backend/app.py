@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from groq import Groq
@@ -197,6 +197,53 @@ async def tts(request: TTSRequest) -> StreamingResponse:
             logger.error("Flux Edge-TTS interrompu : %s", exc)
 
     return StreamingResponse(audio_stream(), media_type="audio/mpeg")
+
+
+@app.websocket("/ws/vision")
+async def vision_ws(websocket: WebSocket) -> None:
+    """Flux temps réel de la vision gestuelle.
+
+    Émet ~30 fois/s : statut du moteur, position normalisée de la main
+    (curseur spatial + parallaxe) et événements gestuels (signe V).
+    """
+    import asyncio
+
+    from backend.vision import get_engine
+
+    await websocket.accept()
+    engine = get_engine()
+    engine.acquire()
+    logger.info("Client vision connecté")
+
+    last_status = None
+    last_hand = None
+    try:
+        while True:
+            snap = engine.snapshot()
+
+            status = (snap["available"], snap["reason"])
+            if status != last_status:
+                last_status = status
+                await websocket.send_json({
+                    "type": "status",
+                    "vision": "active" if snap["available"] else "unavailable",
+                    "reason": snap["reason"],
+                })
+
+            hand = snap["hand"]
+            if hand != last_hand:
+                last_hand = hand
+                await websocket.send_json({"type": "hand", **hand})
+
+            for event in snap["events"]:
+                await websocket.send_json(event)
+
+            await asyncio.sleep(1 / 30)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        engine.release()
+        logger.info("Client vision déconnecté")
 
 
 if __name__ == "__main__":

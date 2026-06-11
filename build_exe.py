@@ -29,6 +29,9 @@ ARGS = [
     f"--paths={ROOT}",
     "--hidden-import=backend",
     "--hidden-import=backend.app",
+    "--hidden-import=backend.vision",
+    "--hidden-import=websockets",
+    "--hidden-import=uvicorn.protocols.websockets.websockets_impl",
     # Ressources statiques embarquées dans l'exécutable
     f"--add-data={ROOT / 'frontend'}{SEP}frontend",
     # Sous-modules chargés dynamiquement par uvicorn

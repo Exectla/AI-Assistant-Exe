@@ -4,3 +4,7 @@ groq
 python-dotenv
 pywebview
 edge-tts
+websockets
+
+# Vision gestuelle (optionnel — signe V devant la webcam) :
+# pip install mediapipe

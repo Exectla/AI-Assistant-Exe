@@ -33,6 +33,21 @@ Web Audio API : EQ basses renforcées + légère réverbération métallique.
 Hors connexion, l'application bascule automatiquement sur la synthèse
 vocale locale du système.
 
+## Ordinateur spatial (HUD)
+
+Faites le **signe « V »** (index et majeur levés) devant la webcam pendant
+0,5 s — ou appuyez sur la **touche V** — pour que l'orbe se métamorphose
+en HUD plein écran : graphe de connaissances 3D, curseur spatial suivant
+la main, parallaxe caméra. Refaites le geste pour replier le HUD.
+
+La détection gestuelle (MediaPipe, côté serveur Python) est optionnelle :
+
+```bash
+pip install mediapipe
+```
+
+Sans webcam ou sans ce module, la touche V reste pleinement fonctionnelle.
+
 ## Build exécutable autonome
 
 Produit un fichier unique embarquant le backend, le lanceur et toutes les
