@@ -72,9 +72,15 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class DocumentContext(BaseModel):
+    name: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = []
+    document: DocumentContext | None = None
 
 
 class TTSRequest(BaseModel):
@@ -116,6 +122,16 @@ def chat(request: ChatRequest) -> StreamingResponse:
                 len(request.message), len(request.history))
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if request.document:
+        excerpt = request.document.content[:12_000]
+        messages.append({
+            "role": "system",
+            "content": (
+                f"Document actuellement ouvert par l'utilisateur : "
+                f"« {request.document.name} ». Réponds à ses questions en "
+                f"t'appuyant prioritairement sur ce contenu :\n\n{excerpt}"
+            ),
+        })
     messages += [{"role": m.role, "content": m.content} for m in request.history]
     messages.append({"role": "user", "content": request.message})
 
@@ -197,6 +213,29 @@ async def tts(request: TTSRequest) -> StreamingResponse:
             logger.error("Flux Edge-TTS interrompu : %s", exc)
 
     return StreamingResponse(audio_stream(), media_type="audio/mpeg")
+
+
+@app.get("/api/rag/index")
+def rag_index() -> dict:
+    """Arborescence de IRIS_Database pour le graphe spatial."""
+    from backend import rag
+
+    return rag.build_index()
+
+
+@app.get("/api/rag/file")
+def rag_file(path: str) -> dict:
+    """Contenu texte d'un document de IRIS_Database."""
+    from backend import rag
+
+    try:
+        return rag.read_document(path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Document introuvable : {path}")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Chemin hors de IRIS_Database.")
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @app.websocket("/ws/vision")

@@ -78,6 +78,22 @@
       <span>Signe V · touche V</span>
     </div>
 
+    <!-- Panneau de lecture Liquid Glass (ouvert par pince sur un nœud) -->
+    <aside id="reader" class="reader" hidden>
+      <header class="reader__header">
+        <span id="reader-title" class="reader__title">—</span>
+        <button id="reader-close" class="reader__close" type="button"
+                aria-label="Fermer le document">✕</button>
+      </header>
+      <div id="reader-body" class="reader__body"></div>
+      <div id="reader-answer" class="reader__answers"></div>
+      <form id="reader-form" class="reader__form">
+        <input id="reader-input" class="reader__input" type="text"
+               placeholder="Interrogez ce document (ou parlez)…" autocomplete="off" />
+        <button class="reader__send" type="submit" aria-label="Envoyer">→</button>
+      </form>
+    </aside>
+
     <div id="spatial-cursor" class="hud__cursor"></div>
   </div>
 

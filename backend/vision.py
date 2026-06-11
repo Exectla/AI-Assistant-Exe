@@ -40,6 +40,26 @@ MODEL_URL = (
 )
 
 
+def is_pinch(landmarks) -> bool:
+    """Pince : pouce (4) et index (8) joints.
+
+    Le seuil est relatif à la taille de la main (distance poignet 0 →
+    base du majeur 9) pour rester stable quelle que soit la distance
+    à la caméra.
+    """
+    dx = landmarks[4].x - landmarks[8].x
+    dy = landmarks[4].y - landmarks[8].y
+    pinch_dist = (dx * dx + dy * dy) ** 0.5
+
+    hx = landmarks[0].x - landmarks[9].x
+    hy = landmarks[0].y - landmarks[9].y
+    hand_size = (hx * hx + hy * hy) ** 0.5
+
+    if hand_size < 1e-5:
+        return False
+    return pinch_dist < hand_size * 0.45
+
+
 def is_v_sign(landmarks) -> bool:
     """Détection stricte du signe "V" (Peace).
 
@@ -243,6 +263,8 @@ class GestureEngine:
             v_since = None      # début du maintien du signe V
             fired = False       # déjà déclenché pour ce maintien
             released_at = 0.0   # instant de la dernière relâche
+            pinch_frames = 0    # frames consécutives en pince
+            pinch_active = False
 
             while True:
                 with self._lock:
@@ -261,12 +283,28 @@ class GestureEngine:
                 present = landmarks is not None
                 hand_x, hand_y = 0.5, 0.5
                 v_now = False
+                pinch_now = False
 
                 if present:
                     # Paume (repère 9), X miroir pour un contrôle naturel
                     hand_x = 1.0 - landmarks[9].x
                     hand_y = landmarks[9].y
                     v_now = is_v_sign(landmarks)
+                    pinch_now = is_pinch(landmarks)
+
+                # Pince : 2 frames stables avant déclenchement (anti-bruit),
+                # un seul événement par fermeture de pince.
+                if pinch_now:
+                    pinch_frames += 1
+                    if pinch_frames >= 2 and not pinch_active:
+                        pinch_active = True
+                        with self._lock:
+                            self.events.append(
+                                {"type": "gesture", "name": "pinch"}
+                            )
+                else:
+                    pinch_frames = 0
+                    pinch_active = False
 
                 if v_now:
                     if v_since is None:
@@ -294,6 +332,7 @@ class GestureEngine:
                         "present": present,
                         "x": round(hand_x, 4),
                         "y": round(hand_y, 4),
+                        "pinch": pinch_active,
                     }
 
                 time.sleep(1.0 / CAPTURE_FPS)

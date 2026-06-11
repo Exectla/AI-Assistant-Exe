@@ -30,6 +30,8 @@ ARGS = [
     "--hidden-import=backend",
     "--hidden-import=backend.app",
     "--hidden-import=backend.vision",
+    "--hidden-import=backend.rag",
+    "--hidden-import=pypdf",
     "--hidden-import=websockets",
     "--hidden-import=uvicorn.protocols.websockets.websockets_impl",
     # Ressources statiques embarquées dans l'exécutable

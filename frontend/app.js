@@ -530,6 +530,7 @@ class UISystem {
     this.status = document.getElementById("status");
     this.history = [];
     this.onReply = null;
+    this.document = null; // document RAG actuellement ouvert
   }
 
   init() {
@@ -584,6 +585,13 @@ class UISystem {
    * les erreurs HTTP affichent la cause exacte renvoyée par le noyau.
    */
   async submitMessage(text) {
+    /* Document ouvert dans le panneau de lecture : la question (écrite
+       ou vocale) interroge ce document précis. */
+    const reader = document.getElementById("reader");
+    if (this.document && reader && !reader.hidden) {
+      return this.askDocument(text);
+    }
+
     this.addMessage("user", text);
     this.setOrbState("thinking", "");
     log(`Envoi au noyau (${text.length} caractères)`);
@@ -643,12 +651,76 @@ class UISystem {
   }
 
   /**
+   * Interroge le document ouvert : la question et la réponse s'affichent
+   * dans le panneau de lecture, le contenu du document est envoyé au
+   * noyau comme contexte prioritaire.
+   */
+  async askDocument(text) {
+    const answers = document.getElementById("reader-answer");
+    const qa = document.createElement("div");
+    qa.className = "reader__qa";
+    const question = document.createElement("p");
+    question.className = "reader__q";
+    question.textContent = text;
+    const answer = document.createElement("p");
+    answer.className = "reader__a";
+    qa.append(question, answer);
+    answers.appendChild(qa);
+    answers.scrollTop = answers.scrollHeight;
+
+    this.setOrbState("thinking", "");
+    log(`Question sur document « ${this.document.name} »`);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: [],
+          document: {
+            name: this.document.name,
+            content: this.document.content.slice(0, 12000),
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        let detail = `Le noyau a répondu HTTP ${response.status}.`;
+        try {
+          const payload = await response.json();
+          if (payload.detail) {
+            detail = payload.detail;
+          }
+        } catch (_) { /* corps non-JSON */ }
+        answer.textContent = detail;
+        this.setOrbState("online", "");
+        return;
+      }
+
+      const reply = await this.streamText(response.body, answer, answers);
+      this.setOrbState("online", "");
+      if (this.onReply) {
+        this.onReply(reply);
+      }
+    } catch (error) {
+      logError("askDocument :", error.message);
+      answer.textContent = "Le noyau A.B.D. est injoignable.";
+      this.setOrbState("offline", "noyau hors ligne — reconnexion…");
+    }
+  }
+
+  /**
    * Consomme le flux de la réponse et affiche le texte progressivement
    * (effet "typing") : les fragments réseau alimentent une file que l'on
    * vide caractère par caractère.
    */
   async streamIntoMessage(body) {
     const element = this.addMessage("assistant", "");
+    return this.streamText(body, element, this.conversation);
+  }
+
+  async streamText(body, element, scroller) {
     const decoder = new TextDecoder("utf-8");
     const reader = body.getReader();
 
@@ -664,7 +736,7 @@ class UISystem {
           displayed += pending.slice(0, CHARS_PER_TICK);
           pending = pending.slice(CHARS_PER_TICK);
           element.textContent = displayed;
-          this.conversation.scrollTop = this.conversation.scrollHeight;
+          scroller.scrollTop = scroller.scrollHeight;
         }
         if (done && pending.length === 0) {
           resolve();
@@ -812,14 +884,36 @@ document.addEventListener("DOMContentLoaded", () => {
     canvas: document.getElementById("graph-canvas"),
     cursor: document.getElementById("spatial-cursor"),
     audio: audioEngine,
+    apiBase: API_BASE,
     historyProvider: () => uiSystem.history,
     kernelProvider: () => document.getElementById("orb").dataset.state,
+  });
+
+  /* Spatial RAG : le document ouvert devient le contexte du noyau */
+  hud.onDocumentOpen = (doc) => {
+    uiSystem.document = { name: doc.name, content: doc.content };
+    log(`Document chargé en mémoire : ${doc.name}`);
+  };
+  hud.onDocumentClose = () => {
+    uiSystem.document = null;
+  };
+  const readerForm = document.getElementById("reader-form");
+  readerForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = document.getElementById("reader-input");
+    const text = input.value.trim();
+    if (text) {
+      input.value = "";
+      uiSystem.askDocument(text);
+    }
   });
 
   const visionLink = new VisionLink();
   visionLink.onGesture = (name) => {
     if (name === "v_sign") {
       hud.toggle();
+    } else if (name === "pinch") {
+      hud.pinch();
     }
   };
   visionLink.onHand = (hand) => hud.setHandTarget(hand);
@@ -831,11 +925,23 @@ document.addEventListener("DOMContentLoaded", () => {
   visionLink.start();
 
   document.addEventListener("keydown", (event) => {
-    if (
-      event.key.toLowerCase() === "v" &&
-      document.activeElement !== document.getElementById("chat-input")
-    ) {
+    const typing =
+      document.activeElement === document.getElementById("chat-input") ||
+      document.activeElement === document.getElementById("reader-input");
+    if (event.key.toLowerCase() === "v" && !typing) {
       hud.toggle();
+    }
+  });
+
+  /* Kill switch : Échap éteint l'application entière, instantanément. */
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      log("Kill switch — extinction");
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.quit) {
+        window.pywebview.api.quit();
+      } else {
+        window.close();
+      }
     }
   });
 

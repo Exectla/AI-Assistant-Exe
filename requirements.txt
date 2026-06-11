@@ -5,6 +5,7 @@ python-dotenv
 pywebview
 edge-tts
 websockets
+pypdf
 
 # Vision gestuelle (optionnel — signe V devant la webcam) :
 # pip install mediapipe
