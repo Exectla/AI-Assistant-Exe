@@ -25,6 +25,15 @@
       <p class="app__subtitle">Advanced Brain Understanding</p>
     </header>
 
+    <!-- Orbe : présence et état du noyau -->
+    <div class="app__presence">
+      <div id="orb" class="orb" data-state="connecting" aria-hidden="true">
+        <div class="orb__core"></div>
+        <div class="orb__halo"></div>
+      </div>
+      <p id="status" class="app__status" role="status"></p>
+    </div>
+
     <section class="app__conversation" id="conversation" aria-live="polite"></section>
 
     <footer class="app__controls">

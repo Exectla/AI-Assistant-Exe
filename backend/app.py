@@ -4,8 +4,11 @@ Expose /api/chat : relaie les messages vers Groq (Llama-3) et diffuse la
 réponse en streaming (fragments de texte transmis dès réception).
 """
 
+import logging
 import os
+import sys
 from collections.abc import Iterator
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -14,14 +17,43 @@ from fastapi.responses import StreamingResponse
 from groq import Groq
 from pydantic import BaseModel
 
-load_dotenv()
+logging.basicConfig(level=logging.INFO, format="[A.B.D.] %(levelname)s — %(message)s")
+logger = logging.getLogger("abd")
+
+
+def _load_env() -> None:
+    """Charge .env depuis l'emplacement le plus pertinent.
+
+    Ordre : à côté de l'exécutable (mode gelé PyInstaller), racine du
+    projet, puis répertoire courant — pour que le lancement fonctionne
+    quel que soit le dossier d'où l'on démarre.
+    """
+    candidates = []
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).resolve().parent / ".env")
+    candidates.append(Path(__file__).resolve().parent.parent / ".env")
+    candidates.append(Path.cwd() / ".env")
+
+    for candidate in candidates:
+        if candidate.is_file():
+            load_dotenv(candidate)
+            logger.info("Configuration chargée : %s", candidate)
+            return
+    logger.warning(
+        "Aucun fichier .env trouvé (emplacements testés : %s). "
+        "Créez-le à partir de .env.example avec votre GROQ_API_KEY.",
+        ", ".join(str(c) for c in candidates),
+    )
+
+
+_load_env()
 
 app = FastAPI(title="A.B.D. Core", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -47,19 +79,34 @@ class ChatRequest(BaseModel):
 
 def get_client() -> Groq:
     api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY manquante (voir .env.example)")
+    if not api_key or api_key == "votre_cle_ici":
+        logger.error("GROQ_API_KEY absente ou non remplacée dans .env")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Clé API Groq absente. Créez un fichier .env à côté de "
+                "l'application contenant : GROQ_API_KEY=votre_vraie_cle "
+                "(clé gratuite sur console.groq.com)."
+            ),
+        )
     return Groq(api_key=api_key)
 
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "online", "system": "A.B.D."}
+    api_key = os.getenv("GROQ_API_KEY")
+    return {
+        "status": "online",
+        "system": "A.B.D.",
+        "key_configured": bool(api_key and api_key != "votre_cle_ici"),
+    }
 
 
 @app.post("/api/chat")
 def chat(request: ChatRequest) -> StreamingResponse:
     client = get_client()
+    logger.info("Requête reçue (%d caractères, %d messages d'historique)",
+                len(request.message), len(request.history))
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages += [{"role": m.role, "content": m.content} for m in request.history]
@@ -74,6 +121,7 @@ def chat(request: ChatRequest) -> StreamingResponse:
             stream=True,
         )
     except Exception as exc:  # erreurs réseau / API Groq
+        logger.error("Échec de l'appel Groq : %s", exc)
         raise HTTPException(status_code=502, detail=f"Erreur Groq : {exc}") from exc
 
     def token_generator() -> Iterator[str]:
