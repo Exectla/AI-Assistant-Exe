@@ -136,6 +136,98 @@ class AudioEngine {
     thud.start(now);
     thud.stop(now + 0.1);
   }
+
+  /**
+   * Déploiement du HUD : sub-bass drop massif (60 → 25 Hz) couplé à
+   * une aspiration pneumatique sourde (bruit en lowpass descendant).
+   * Aucun aigu possible : tout traverse le passe-bas maître.
+   */
+  playHudDeploy() {
+    const ctx = this.ensureContext();
+    const now = ctx.currentTime;
+
+    const drop = ctx.createOscillator();
+    drop.type = "sine";
+    drop.frequency.setValueAtTime(60, now);
+    drop.frequency.exponentialRampToValueAtTime(25, now + 1.5);
+
+    const dropGain = ctx.createGain();
+    dropGain.gain.setValueAtTime(0.0001, now);
+    dropGain.gain.exponentialRampToValueAtTime(0.5, now + 0.35);
+    dropGain.gain.setValueAtTime(0.5, now + 1.1);
+    dropGain.gain.exponentialRampToValueAtTime(0.001, now + 1.9);
+
+    drop.connect(dropGain);
+    dropGain.connect(this.master);
+    drop.start(now);
+    drop.stop(now + 2.0);
+
+    const suctionDuration = 1.5;
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * suctionDuration, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const suction = ctx.createBufferSource();
+    suction.buffer = buffer;
+
+    const sweep = ctx.createBiquadFilter();
+    sweep.type = "lowpass";
+    sweep.frequency.setValueAtTime(800, now);
+    sweep.frequency.exponentialRampToValueAtTime(110, now + suctionDuration);
+    sweep.Q.value = 0.9;
+
+    const suctionGain = ctx.createGain();
+    suctionGain.gain.setValueAtTime(0.0001, now);
+    suctionGain.gain.exponentialRampToValueAtTime(0.16, now + 0.5);
+    suctionGain.gain.exponentialRampToValueAtTime(0.001, now + suctionDuration);
+
+    suction.connect(sweep);
+    sweep.connect(suctionGain);
+    suctionGain.connect(this.master);
+    suction.start(now);
+  }
+
+  /** Calage du cadre : thud électronique lourd, court et feutré. */
+  playHudLock() {
+    const ctx = this.ensureContext();
+    const now = ctx.currentTime;
+
+    const thud = ctx.createOscillator();
+    thud.type = "sine";
+    thud.frequency.setValueAtTime(55, now);
+    thud.frequency.exponentialRampToValueAtTime(32, now + 0.2);
+
+    const thudGain = ctx.createGain();
+    thudGain.gain.setValueAtTime(0.55, now);
+    thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+
+    thud.connect(thudGain);
+    thudGain.connect(this.master);
+    thud.start(now);
+    thud.stop(now + 0.26);
+  }
+
+  /** Repli du HUD : remontée sub-bass douce (25 → 50 Hz). */
+  playHudCollapse() {
+    const ctx = this.ensureContext();
+    const now = ctx.currentTime;
+
+    const rise = ctx.createOscillator();
+    rise.type = "sine";
+    rise.frequency.setValueAtTime(25, now);
+    rise.frequency.exponentialRampToValueAtTime(50, now + 0.8);
+
+    const riseGain = ctx.createGain();
+    riseGain.gain.setValueAtTime(0.0001, now);
+    riseGain.gain.exponentialRampToValueAtTime(0.25, now + 0.2);
+    riseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+
+    rise.connect(riseGain);
+    riseGain.connect(this.master);
+    rise.start(now);
+    rise.stop(now + 1.0);
+  }
 }
 
 /* ============================================================
@@ -285,6 +377,72 @@ class VoiceEngine {
     utterance.rate = 1.0;
     utterance.pitch = 0.9;
     window.speechSynthesis.speak(utterance);
+  }
+}
+
+/* ============================================================
+   VisionLink — pont WebSocket vers le moteur de vision gestuelle
+   (MediaPipe côté serveur). Reconnexion automatique ; si la vision
+   est indisponible, la touche V reste le déclencheur du HUD.
+   ============================================================ */
+
+class VisionLink {
+  constructor() {
+    this.ws = null;
+    this.retryMs = 1000;
+    this.onGesture = null;
+    this.onHand = null;
+    this.onStatus = null;
+  }
+
+  start() {
+    this.connect();
+  }
+
+  connect() {
+    const url = API_BASE.replace(/^http/, "ws") + "/ws/vision";
+    try {
+      this.ws = new WebSocket(url);
+    } catch (error) {
+      this.scheduleReconnect();
+      return;
+    }
+
+    this.ws.addEventListener("open", () => {
+      this.retryMs = 1000;
+      log("VisionLink : canal gestuel connecté");
+    });
+
+    this.ws.addEventListener("message", (event) => {
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch (_) {
+        return;
+      }
+      if (data.type === "gesture" && this.onGesture) {
+        log(`VisionLink : geste détecté — ${data.name}`);
+        this.onGesture(data.name);
+      } else if (data.type === "hand" && this.onHand) {
+        this.onHand(data);
+      } else if (data.type === "status" && this.onStatus) {
+        log(`VisionLink : vision ${data.vision}` +
+            (data.reason ? ` (${data.reason})` : ""));
+        this.onStatus(data);
+      }
+    });
+
+    this.ws.addEventListener("close", () => this.scheduleReconnect());
+    this.ws.addEventListener("error", () => {
+      try {
+        this.ws.close();
+      } catch (_) { /* déjà fermé */ }
+    });
+  }
+
+  scheduleReconnect() {
+    setTimeout(() => this.connect(), this.retryMs);
+    this.retryMs = Math.min(this.retryMs * 2, 10000);
   }
 }
 
@@ -644,6 +802,42 @@ document.addEventListener("DOMContentLoaded", () => {
   } catch (error) {
     logError("Couche visuelle indisponible (WebGL ?) — repli CSS :", error.message);
   }
+
+  /* Ordinateur spatial : morphing orbe → HUD, déclenché par le signe V
+     (vision MediaPipe côté serveur) ou par la touche V au clavier. */
+  const hud = new window.ABDHud.SpatialHUD({
+    orb: document.getElementById("orb"),
+    root: document.getElementById("hud"),
+    frame: document.querySelector(".hud__frame"),
+    canvas: document.getElementById("graph-canvas"),
+    cursor: document.getElementById("spatial-cursor"),
+    audio: audioEngine,
+    historyProvider: () => uiSystem.history,
+    kernelProvider: () => document.getElementById("orb").dataset.state,
+  });
+
+  const visionLink = new VisionLink();
+  visionLink.onGesture = (name) => {
+    if (name === "v_sign") {
+      hud.toggle();
+    }
+  };
+  visionLink.onHand = (hand) => hud.setHandTarget(hand);
+  visionLink.onStatus = (status) => {
+    hud.setVisionStatus(
+      status.vision === "active" ? "MediaPipe · main suivie" : "clavier (touche V)"
+    );
+  };
+  visionLink.start();
+
+  document.addEventListener("keydown", (event) => {
+    if (
+      event.key.toLowerCase() === "v" &&
+      document.activeElement !== document.getElementById("chat-input")
+    ) {
+      hud.toggle();
+    }
+  });
 
   // Les navigateurs exigent un geste utilisateur avant de démarrer
   // l'AudioContext : le room tone se lance à la première interaction.

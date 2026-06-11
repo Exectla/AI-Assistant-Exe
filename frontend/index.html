@@ -54,10 +54,38 @@
     </footer>
   </main>
 
+  <!-- Ordinateur spatial (déployé par le signe V ou la touche V) -->
+  <div id="hud" class="hud" hidden>
+    <div class="hud__frame"></div>
+    <canvas id="graph-canvas" class="hud__graph"></canvas>
+
+    <div class="hud__module hud__module--tl">
+      <span class="hud__module-title">Noyau</span>
+      <span id="hud-kernel">—</span>
+    </div>
+    <div class="hud__module hud__module--tr">
+      <span class="hud__module-title">Heure</span>
+      <span id="hud-clock">—</span>
+    </div>
+    <div class="hud__module hud__module--bl">
+      <span class="hud__module-title">Voix</span>
+      <span>Henri · Neural</span>
+      <span class="hud__module-title">Vision</span>
+      <span id="hud-vision">clavier (touche V)</span>
+    </div>
+    <div class="hud__module hud__module--br">
+      <span class="hud__module-title">Fermer</span>
+      <span>Signe V · touche V</span>
+    </div>
+
+    <div id="spatial-cursor" class="hud__cursor"></div>
+  </div>
+
   <!-- Poussière holographique de premier plan -->
   <canvas id="dust-canvas" class="dust-canvas" aria-hidden="true"></canvas>
 
   <script src="visuals.js"></script>
+  <script src="hud.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
