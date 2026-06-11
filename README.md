@@ -25,6 +25,14 @@ Le backend écoute sur `http://127.0.0.1:8756` ; les réponses de `/api/chat`
 sont diffusées en streaming (fragments de texte transmis dès réception) et
 affichées progressivement dans l'interface (effet « typing »).
 
+## Voix
+
+Les réponses sont lues par la voix neuronale **fr-FR-HenriNeural**
+(Edge-TTS, gratuit, sans clé API — nécessite internet), traitée par la
+Web Audio API : EQ basses renforcées + légère réverbération métallique.
+Hors connexion, l'application bascule automatiquement sur la synthèse
+vocale locale du système.
+
 ## Build exécutable autonome
 
 Produit un fichier unique embarquant le backend, le lanceur et toutes les

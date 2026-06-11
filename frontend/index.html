@@ -8,7 +8,10 @@
 </head>
 <body>
 
-  <!-- Séquence de démarrage -->
+  <!-- Abîme de Coruscant : flux de trafic lointains (shader WebGL) -->
+  <canvas id="bg-canvas" class="bg-canvas" aria-hidden="true"></canvas>
+
+  <!-- Séquence d'allumage -->
   <section id="boot" class="boot" aria-hidden="true">
     <div class="boot__line"></div>
     <div class="boot__letters">
@@ -25,9 +28,10 @@
       <p class="app__subtitle">Advanced Brain Understanding</p>
     </header>
 
-    <!-- Orbe : présence et état du noyau -->
+    <!-- Orbe holographique : présence et état du noyau -->
     <div class="app__presence">
       <div id="orb" class="orb" data-state="connecting" aria-hidden="true">
+        <canvas id="orb-canvas" class="orb__canvas"></canvas>
         <div class="orb__core"></div>
         <div class="orb__halo"></div>
       </div>
@@ -50,6 +54,10 @@
     </footer>
   </main>
 
+  <!-- Poussière holographique de premier plan -->
+  <canvas id="dust-canvas" class="dust-canvas" aria-hidden="true"></canvas>
+
+  <script src="visuals.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
