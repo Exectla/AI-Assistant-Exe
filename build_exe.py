@@ -31,6 +31,7 @@ ARGS = [
     "--hidden-import=backend.app",
     "--hidden-import=backend.vision",
     "--hidden-import=backend.rag",
+    "--hidden-import=backend.audio_in",
     "--hidden-import=pypdf",
     "--hidden-import=websockets",
     "--hidden-import=uvicorn.protocols.websockets.websockets_impl",
@@ -68,6 +69,11 @@ def vision_args() -> list:
         args.append("--collect-all=mediapipe")
     except ImportError:
         print("[A.B.D.] AVERTISSEMENT : mediapipe absent — exe sans gestes")
+    try:
+        import sounddevice  # noqa: F401
+        args.append("--collect-all=sounddevice")
+    except (ImportError, OSError):
+        print("[A.B.D.] AVERTISSEMENT : sounddevice absent — exe sans micro noyau")
     return args
 
 

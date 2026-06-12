@@ -844,10 +844,10 @@ class SpeechController {
     this.micButton = document.getElementById("mic-button");
     this.recognition = null;
     this.listening = false;
-    /* Voie de secours micro : WebView2 (moteur de la fenêtre native)
-       n'implémente pas l'API Web Speech — on enregistre alors le micro
-       (getUserMedia, autorisé d'office par le lanceur) et le noyau
-       transcrit via Whisper (/api/stt). */
+    /* Voie principale : micro capturé CÔTÉ NOYAU (sounddevice, comme
+       la caméra) — aucun accès navigateur requis. Voies de secours :
+       Web Speech puis MediaRecorder → /api/stt (Whisper). */
+    this.kernelMic = "unknown"; /* "unknown" | "yes" | "no" */
     this.useRecorder = false;
     this.recorder = null;
     this.recorderStream = null;
@@ -888,9 +888,9 @@ class SpeechController {
       this.useRecorder = true;
       log("SpeechController : Web Speech absent — micro via transcription noyau");
     } else {
-      log("SpeechController : aucun accès micro disponible dans ce moteur");
-      this.micButton.disabled = true;
-      this.micButton.title = "Microphone non disponible";
+      /* Pas de micro navigateur : la voie noyau (sounddevice) reste
+         pleinement fonctionnelle — le bouton demeure actif. */
+      log("SpeechController : pas de micro navigateur — voie noyau uniquement");
     }
 
     this.micButton.addEventListener("click", () => this.toggle());
@@ -905,7 +905,13 @@ class SpeechController {
     );
   }
 
-  toggle() {
+  async toggle() {
+    if (this.kernelMic !== "no") {
+      const handled = await this.kernelToggle();
+      if (handled) {
+        return;
+      }
+    }
     if (this.useRecorder) {
       if (this.listening) {
         this.stopRecording();
@@ -925,6 +931,51 @@ class SpeechController {
       this.voice.stop();
       this.recognition.start();
       this.setListening(true);
+    }
+  }
+
+  /* ----- micro noyau (sounddevice côté Python) --------------------- */
+
+  async kernelToggle() {
+    if (this.listening) {
+      this.setListening(false);
+      try {
+        const response = await fetch(`${API_BASE}/api/mic/stop`, { method: "POST" });
+        const data = await response.json();
+        if (data.text) {
+          this.ui.submitMessage(data.text);
+        }
+      } catch (error) {
+        logError("SpeechController : arrêt du micro noyau —", error);
+      }
+      return true;
+    }
+
+    this.voice.stop();
+    try {
+      const response = await fetch(`${API_BASE}/api/mic/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ continuous: false }),
+      });
+      if (response.ok) {
+        this.kernelMic = "yes";
+        this.setListening(true);
+        return true;
+      }
+      const payload = await response.json().catch(() => ({}));
+      const detail = String(payload.detail || "");
+      if (detail.includes("déjà en cours")) {
+        log("SpeechController : micro noyau occupé (Shadow Workspace ?)");
+        return true; /* occupé ≠ indisponible : pas de bascule */
+      }
+      logError("SpeechController : micro noyau indisponible —", detail);
+      this.kernelMic = "no";
+      return false;
+    } catch (error) {
+      /* Noyau injoignable : on retentera au prochain clic. */
+      logError("SpeechController : noyau injoignable —", error);
+      return true;
     }
   }
 
@@ -1085,7 +1136,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const visionLink = new VisionLink();
 
-  /* Protocole de scan biométrique (geste OK ou touche B) */
+  /* Protocole de scan biométrique (🖐 main ouverte ou touche B) */
   const scan = new window.ABDScan.BiometricScan({
     root: document.getElementById("scan"),
     video: document.getElementById("scan-video"),
@@ -1099,7 +1150,7 @@ document.addEventListener("DOMContentLoaded", () => {
   visionLink.onScanData = (data) => scan.onScanData(data);
 
   /* Shadow Workspace : brouillon holographique éphémère, invoqué par
-     le geste index+majeur collés (ou la touche W). */
+     l'index seul levé (ou la touche W). */
   const shadow = new window.ABDShadow.ShadowWorkspace({
     root: document.getElementById("shadow"),
     lines: document.getElementById("shadow-lines"),
@@ -1109,6 +1160,7 @@ document.addEventListener("DOMContentLoaded", () => {
     apiBase: API_BASE,
   });
 
+  /* Gestes de comptage : ☝ Shadow · ✌ ordinateur spatial · 🖐 scan. */
   visionLink.onGesture = (event) => {
     if (event.name === "v_sign") {
       hud.toggle();
@@ -1120,7 +1172,7 @@ document.addEventListener("DOMContentLoaded", () => {
       hud.pinch(
         typeof event.x === "number" ? { x: event.x, y: event.y } : null
       );
-    } else if (event.name === "ok_sign") {
+    } else if (event.name === "scan_sign") {
       scan.toggle();
     }
   };

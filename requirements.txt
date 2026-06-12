@@ -11,3 +11,6 @@ pypdf
 # noyau (OpenCV) — ces modules sont indispensables au flux vidéo.
 opencv-python
 mediapipe
+
+# Microphone côté noyau (bouton Parler et Shadow Workspace) :
+sounddevice

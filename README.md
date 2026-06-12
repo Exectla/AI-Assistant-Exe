@@ -46,9 +46,11 @@ Sous Windows, vérifiez que l'accès caméra/micro est activé pour les
 applications de bureau (Paramètres → Confidentialité). Sans webcam, la
 touche V reste pleinement fonctionnelle.
 
-Le **microphone** fonctionne dans tous les cas : reconnaissance vocale du
-moteur web quand elle existe, sinon enregistrement direct du micro
-(autorisé d'office par le lanceur) transcrit par **Whisper** via Groq.
+Le **microphone** est lui aussi capturé **côté noyau** (`sounddevice`,
+installé via `requirements.txt`) puis transcrit par **Whisper** via Groq
+— le navigateur n'est jamais sollicité. À défaut, l'interface bascule
+sur la reconnaissance vocale du moteur web puis sur l'enregistreur
+navigateur.
 
 ## Spatial RAG — ABD_Database
 
@@ -67,18 +69,20 @@ s'appuyant sur ce document précis.
 
 ## Contrôles
 
-| Action | Effet |
+Des signes de comptage simples, un par module :
+
+| Geste | Effet |
 | ------ | ----- |
-| Signe ✌️ doigts **écartés** (0,5 s) ou touche `V` | Déployer / replier l'ordinateur spatial |
-| Index + majeur **collés** (0,5 s) ou touche `W` | **Shadow Workspace** — brouillon vocal éphémère (anti-rebond 2 s) |
-| Pince 🤏 ou clic sur un nœud | Ouvrir le document dans le panneau de lecture |
-| Geste 👌 (0,8 s) ou touche `B` | **Scan biométrique** — Face Mesh 468 points, flux caméra, nappe 30 Hz |
+| ☝️ **Index seul** (0,5 s) ou touche `W` | **Shadow Workspace** — brouillon vocal éphémère (anti-rebond 2 s) |
+| ✌️ **Deux doigts** (0,5 s) ou touche `V` | Déployer / replier l'**ordinateur spatial** |
+| 🖐️ **Main ouverte** (0,8 s) ou touche `B` | **Scan biométrique** — Face Mesh 468 points, flux caméra |
+| 🤏 **Pince** pouce/index ou clic sur un nœud | Ouvrir le document (les autres doigts peuvent rester levés) |
 | Touche `Échap` | **Kill switch** — extinction instantanée de l'application |
 
 ## Shadow Workspace
 
-Levez index et majeur **tendus et collés** (0,5 s) : un panneau Liquid
-Glass se déploie et écoute le micro en continu — chaque phrase prononcée
+Levez **l'index seul** (0,5 s) : un panneau Liquid Glass se déploie et
+écoute le micro en continu — chaque phrase prononcée
 s'inscrit en ligne flottante horodatée, avec défilement automatique.
 Refaites le geste pour le replier (l'écoute s'arrête aussitôt).
 
