@@ -112,12 +112,28 @@
     <div id="scan-feed-right" class="scan__feed scan__feed--right"></div>
   </div>
 
+  <!-- Shadow Workspace : brouillon éphémère (geste ✌ collé ou touche W) -->
+  <aside id="shadow" class="shadow" hidden>
+    <header class="shadow__header">
+      <span class="shadow__title">Shadow Workspace</span>
+      <span class="shadow__badge">éphémère · mémoire vive</span>
+    </header>
+    <div id="shadow-lines" class="shadow__lines"></div>
+    <footer class="shadow__footer">
+      <span id="shadow-status" class="shadow__status">micro en veille</span>
+      <button id="shadow-export" class="shadow__export" type="button">
+        Exporter ⟶ .md
+      </button>
+    </footer>
+  </aside>
+
   <!-- Poussière holographique de premier plan -->
   <canvas id="dust-canvas" class="dust-canvas" aria-hidden="true"></canvas>
 
   <script src="visuals.js"></script>
   <script src="hud.js"></script>
   <script src="scan.js"></script>
+  <script src="shadow.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

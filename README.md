@@ -69,10 +69,24 @@ s'appuyant sur ce document précis.
 
 | Action | Effet |
 | ------ | ----- |
-| Signe ✌️ (0,5 s) ou touche `V` | Déployer / replier l'ordinateur spatial |
+| Signe ✌️ doigts **écartés** (0,5 s) ou touche `V` | Déployer / replier l'ordinateur spatial |
+| Index + majeur **collés** (0,5 s) ou touche `W` | **Shadow Workspace** — brouillon vocal éphémère (anti-rebond 2 s) |
 | Pince 🤏 ou clic sur un nœud | Ouvrir le document dans le panneau de lecture |
 | Geste 👌 (0,8 s) ou touche `B` | **Scan biométrique** — Face Mesh 468 points, flux caméra, nappe 30 Hz |
 | Touche `Échap` | **Kill switch** — extinction instantanée de l'application |
+
+## Shadow Workspace
+
+Levez index et majeur **tendus et collés** (0,5 s) : un panneau Liquid
+Glass se déploie et écoute le micro en continu — chaque phrase prononcée
+s'inscrit en ligne flottante horodatée, avec défilement automatique.
+Refaites le geste pour le replier (l'écoute s'arrête aussitôt).
+
+**Protocole éphémère** : le brouillon vit uniquement en mémoire vive.
+Le kill switch (`Échap`) n'en laisse aucune trace sur le disque. Seul le
+bouton **« Exporter ⟶ .md »** écrit un fichier horodaté dans
+`ABD_Database/Shadow_Logs/` — qui devient alors un nœud du graphe
+spatial comme tout autre document.
 
 L'application démarre en **mode kiosque verrouillé** : plein écran strict,
 fenêtre sans bordures, **indéplaçable** (anti-drag souris), non

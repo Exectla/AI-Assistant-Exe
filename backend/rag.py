@@ -8,6 +8,7 @@ graphe spatial ; une pince sur un nœud ouvre le panneau de lecture.
 
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger("abd.rag")
@@ -128,6 +129,36 @@ def read_document(relative_path: str) -> dict:
         "path": relative_path,
         "content": content,
         "truncated": truncated,
+    }
+
+
+SHADOW_LOGS_FOLDER = "Shadow_Logs"
+
+
+def export_shadow_log(lines: list) -> dict:
+    """Export manuel du Shadow Workspace : fichier .md horodaté.
+
+    C'est l'UNIQUE voie de persistance du brouillon : tant que ce
+    bouton n'est pas actionné, les lignes vivent exclusivement en
+    mémoire vive de l'interface et disparaissent avec le kill switch.
+    Le fichier rejoint ABD_Database/Shadow_Logs/ et devient donc un
+    nœud du graphe spatial comme tout autre document.
+    """
+    root = ensure_database()
+    folder = root / SHADOW_LOGS_FOLDER
+    folder.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now()
+    path = folder / f"Shadow_{now.strftime('%Y-%m-%d_%H-%M-%S')}.md"
+    header = f"# Shadow Workspace — {now.strftime('%d/%m/%Y %H:%M:%S')}\n"
+    body = "\n".join(f"- {line}" for line in lines)
+    path.write_text(f"{header}\n{body}\n", encoding="utf-8")
+    logger.info("Shadow Workspace exporté : %s (%d lignes)", path.name, len(lines))
+
+    return {
+        "name": path.name,
+        "path": str(path.relative_to(root)).replace("\\", "/"),
+        "lines": len(lines),
     }
 
 
