@@ -218,6 +218,53 @@ async def tts(request: TTSRequest) -> StreamingResponse:
 STT_MODEL = "whisper-large-v3-turbo"
 
 
+class MicStartRequest(BaseModel):
+    continuous: bool = False
+
+
+@app.post("/api/mic/start")
+def mic_start(request: MicStartRequest) -> dict:
+    """Ouvre le micro côté noyau (sounddevice — comme la caméra).
+
+    Mode prise unique (bouton Parler) ou continu (Shadow Workspace,
+    segments de 4 s transcrits en arrière-plan).
+    """
+    from backend import audio_in
+
+    try:
+        audio_in.get_engine().start(continuous=request.continuous)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return {"status": "recording", "continuous": request.continuous}
+
+
+@app.post("/api/mic/stop")
+def mic_stop() -> dict:
+    """Ferme le micro. En prise unique, renvoie la transcription."""
+    from backend import audio_in
+
+    engine = audio_in.get_engine()
+    if not engine.active:
+        return {"status": "idle", "text": ""}
+    wav = engine.stop()
+    if wav is None:  # mode continu : les segments partent via /transcripts
+        return {"status": "stopped", "text": ""}
+    try:
+        text = audio_in.transcribe_wav(wav)
+    except Exception as exc:
+        logger.error("Échec de la transcription micro : %s", exc)
+        raise HTTPException(status_code=502, detail=f"Transcription : {exc}")
+    return {"status": "stopped", "text": text}
+
+
+@app.get("/api/mic/transcripts")
+def mic_transcripts() -> dict:
+    """Transcriptions accumulées du mode continu (vidées à chaque appel)."""
+    from backend import audio_in
+
+    return {"lines": audio_in.get_engine().drain()}
+
+
 @app.post("/api/stt")
 async def stt(request: Request) -> dict:
     """Transcription vocale (Whisper via Groq).

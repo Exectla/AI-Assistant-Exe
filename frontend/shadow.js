@@ -5,7 +5,7 @@
    panneau Liquid Glass. Les données vivent UNIQUEMENT en mémoire
    vive — le kill switch (Échap) n'en laisse aucune trace. Seul le
    bouton d'export écrit un .md horodaté dans ABD_Database/Shadow_Logs.
-   Invocation : geste index+majeur collés (0,5 s) ou touche W.
+   Invocation : ☝ index seul levé (0,5 s) ou touche W.
    ============================================================ */
 
 "use strict";
@@ -47,6 +47,9 @@ class ShadowWorkspace {
     this.rmsPeak = 0;
     this.rmsTimer = null;
     this.liveLine = null;
+    /* Voie principale : micro capturé côté noyau (sounddevice). */
+    this.kernelMic = "unknown";
+    this.kernelPoll = null;
 
     this.exportButton.addEventListener("click", () => this.export());
   }
@@ -95,7 +98,13 @@ class ShadowWorkspace {
 
   /* ----- écoute continue du microphone ------------------------------ */
 
-  startListening() {
+  async startListening() {
+    /* Voie principale : micro noyau (sounddevice — comme la caméra,
+       aucun accès navigateur requis). */
+    if (this.kernelMic !== "no" && await this.startKernel()) {
+      return;
+    }
+
     const SpeechRecognitionClass =
       window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -107,6 +116,7 @@ class ShadowWorkspace {
   }
 
   stopListening() {
+    this.stopKernel();
     if (this.recognition) {
       try {
         this.recognition.stop();
@@ -116,6 +126,54 @@ class ShadowWorkspace {
     this.stopRecorderLoop();
     this.clearLiveLine();
     this.setStatus("micro en veille");
+  }
+
+  /* ----- micro noyau : segments transcrits côté Python -------------- */
+
+  async startKernel() {
+    try {
+      const response = await fetch(`${this.apiBase}/api/mic/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ continuous: true }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        const detail = String(payload.detail || "");
+        if (!detail.includes("déjà en cours")) {
+          this.kernelMic = "no";
+        }
+        logError("ShadowWorkspace : micro noyau indisponible —", detail);
+        return false;
+      }
+    } catch (error) {
+      logError("ShadowWorkspace : noyau injoignable —", error);
+      return false;
+    }
+
+    this.kernelMic = "yes";
+    this.setStatus("écoute active — noyau · Whisper");
+    this.kernelPoll = setInterval(async () => {
+      try {
+        const response = await fetch(`${this.apiBase}/api/mic/transcripts`);
+        if (!response.ok) {
+          return;
+        }
+        const { lines } = await response.json();
+        for (const line of lines) {
+          this.addLine(line);
+        }
+      } catch (_) { /* noyau momentanément injoignable */ }
+    }, 1200);
+    return true;
+  }
+
+  stopKernel() {
+    if (this.kernelPoll) {
+      clearInterval(this.kernelPoll);
+      this.kernelPoll = null;
+      fetch(`${this.apiBase}/api/mic/stop`, { method: "POST" }).catch(() => {});
+    }
   }
 
   startNative(SpeechRecognitionClass) {

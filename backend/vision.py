@@ -1,14 +1,15 @@
 """A.B.D. — Moteur de vision gestuelle (MediaPipe Hands + Face Mesh).
 
 Capture la webcam côté serveur et fournit :
-  - le signe "V" (index/majeur tendus et ÉCARTÉS, debounce 0,5 s) —
-    déploiement de l'ordinateur spatial ;
-  - le geste "Shadow" (index/majeur tendus et COLLÉS, maintien 0,5 s,
-    anti-rebond 2 s) — interrupteur du Shadow Workspace ;
-  - la pince pouce/index (distance euclidienne 3D, point médian publié
-    pour une sélection chirurgicale des nœuds) ;
-  - le geste "OK" (cercle pouce/index, trois doigts déployés, maintien
-    0,8 s) — protocole de scan biométrique ;
+  - ☝ index seul levé (maintien 0,5 s, anti-rebond 2 s) — interrupteur
+    du Shadow Workspace ;
+  - ✌ signe "V" (index+majeur levés, maintien 0,5 s) — déploiement de
+    l'ordinateur spatial ;
+  - 🖐 main ouverte (quatre doigts levés, maintien 0,8 s) — protocole
+    de scan biométrique ;
+  - 🤏 pince pouce/index (distance euclidienne 3D, quel que soit l'état
+    des autres doigts ; point médian publié pour une sélection
+    chirurgicale des nœuds) ;
   - en mode scan : flux JPEG de la caméra, 468 points du visage
     (Face Mesh) et squelette complet des mains, en temps réel.
 
@@ -30,8 +31,9 @@ logger = logging.getLogger("abd.vision")
 
 # Debounce du signe V : maintien stable requis avant déclenchement.
 HOLD_SECONDS = 0.5
-# Debounce du geste OK (protocole de scan) : maintien plus long.
-OK_HOLD_SECONDS = 0.8
+# Debounce de la main ouverte (protocole de scan) : maintien plus long
+# car c'est une pose fréquente d'une main au repos.
+PALM_HOLD_SECONDS = 0.8
 RELEASE_SECONDS = 0.4
 
 # Pince : distance euclidienne 3D pouce(4)/index(8). Plancher absolu de
@@ -40,15 +42,9 @@ RELEASE_SECONDS = 0.4
 PINCH_DIST_3D = 0.03
 PINCH_RELATIVE = 0.30
 
-# Geste "Shadow" : index(8) et majeur(12) tendus ET collés. Plancher
-# absolu de la spec (0.04) + adaptation à la taille de la main. Le
-# signe V exige au contraire un écart franc (marge ×1.25 entre les
-# deux pour qu'aucun tremblement ne fasse basculer l'un dans l'autre).
+# Geste Shadow (index seul levé) : interrupteur, anti-rebond long.
 SHADOW_HOLD_SECONDS = 0.5
 SHADOW_COOLDOWN_SECONDS = 2.0
-FINGERS_GLUED_DIST = 0.04
-FINGERS_GLUED_RELATIVE = 0.22
-V_SPREAD_MARGIN = 1.25
 
 CAPTURE_WIDTH = 640
 CAPTURE_HEIGHT = 360
@@ -89,23 +85,48 @@ def thumb_index_touching(landmarks) -> bool:
     return _dist3(landmarks[4], landmarks[8]) < threshold
 
 
-def fingers_extended(landmarks) -> bool:
-    """Majeur, annulaire et auriculaire entièrement déployés."""
-    return (
-        landmarks[12].y < landmarks[10].y
-        and landmarks[16].y < landmarks[14].y
-        and landmarks[20].y < landmarks[18].y
-    )
+def _up(landmarks, tip: int, pip: int) -> bool:
+    """Doigt tendu : bout au-dessus de son articulation médiane."""
+    return landmarks[tip].y < landmarks[pip].y
 
 
 def is_pinch(landmarks) -> bool:
-    """Pince : pouce/index joints, autres doigts non déployés (≠ OK)."""
-    return thumb_index_touching(landmarks) and not fingers_extended(landmarks)
+    """Pince : pouce/index joints — quel que soit l'état des autres
+    doigts (une pince naturelle laisse souvent les doigts levés)."""
+    return thumb_index_touching(landmarks)
 
 
-def is_ok_sign(landmarks) -> bool:
-    """Geste "OK" : cercle pouce/index + trois doigts déployés."""
-    return thumb_index_touching(landmarks) and fingers_extended(landmarks)
+def is_shadow_sign(landmarks) -> bool:
+    """☝ Index seul levé (majeur/annulaire/auriculaire repliés)."""
+    return (
+        not thumb_index_touching(landmarks)
+        and _up(landmarks, 8, 6)
+        and not _up(landmarks, 12, 10)
+        and not _up(landmarks, 16, 14)
+        and not _up(landmarks, 20, 18)
+    )
+
+
+def is_v_sign(landmarks) -> bool:
+    """✌ Index et majeur levés, annulaire/auriculaire repliés."""
+    return (
+        not thumb_index_touching(landmarks)
+        and _up(landmarks, 8, 6)
+        and _up(landmarks, 12, 10)
+        and not _up(landmarks, 16, 14)
+        and not _up(landmarks, 20, 18)
+    )
+
+
+def is_open_palm(landmarks) -> bool:
+    """🖐 Main ouverte : les quatre doigts levés."""
+    return (
+        not thumb_index_touching(landmarks)
+        and _up(landmarks, 8, 6)
+        and _up(landmarks, 12, 10)
+        and _up(landmarks, 16, 14)
+        and _up(landmarks, 20, 18)
+    )
 
 
 def pinch_midpoint(landmarks) -> tuple:
@@ -114,37 +135,6 @@ def pinch_midpoint(landmarks) -> tuple:
     return (
         (landmarks[4].x + landmarks[8].x) / 2.0,
         (landmarks[4].y + landmarks[8].y) / 2.0,
-    )
-
-
-def _index_middle_up(landmarks) -> bool:
-    """Index et majeur tendus, annulaire et auriculaire repliés."""
-    return (
-        landmarks[8].y < landmarks[6].y
-        and landmarks[12].y < landmarks[10].y
-        and landmarks[16].y > landmarks[14].y
-        and landmarks[20].y > landmarks[18].y
-    )
-
-
-def _glued_threshold(landmarks) -> float:
-    return max(FINGERS_GLUED_DIST, _hand_size(landmarks) * FINGERS_GLUED_RELATIVE)
-
-
-def is_shadow_sign(landmarks) -> bool:
-    """Geste "Shadow" : index et majeur tendus et COLLÉS (spec : < 0.04)."""
-    return (
-        _index_middle_up(landmarks)
-        and _dist3(landmarks[8], landmarks[12]) < _glued_threshold(landmarks)
-    )
-
-
-def is_v_sign(landmarks) -> bool:
-    """Signe "V" : index/majeur tendus et nettement ÉCARTÉS (≠ Shadow)."""
-    return (
-        _index_middle_up(landmarks)
-        and _dist3(landmarks[8], landmarks[12])
-        > _glued_threshold(landmarks) * V_SPREAD_MARGIN
     )
 
 
@@ -407,9 +397,9 @@ class GestureEngine:
             v_since = None
             v_fired = False
             v_released_at = 0.0
-            ok_since = None
-            ok_fired = False
-            ok_released_at = 0.0
+            palm_since = None
+            palm_fired = False
+            palm_released_at = 0.0
             pinch_frames = 0
             pinch_active = False
             shadow_since = None
@@ -434,7 +424,7 @@ class GestureEngine:
 
                 present = landmarks is not None
                 hand_x, hand_y = 0.5, 0.5
-                v_now = pinch_now = ok_now = shadow_now = False
+                v_now = pinch_now = palm_now = shadow_now = False
                 mid = (0.5, 0.5)
 
                 if present:
@@ -442,7 +432,7 @@ class GestureEngine:
                     hand_y = landmarks[9].y
                     v_now = is_v_sign(landmarks)
                     pinch_now = is_pinch(landmarks)
-                    ok_now = is_ok_sign(landmarks)
+                    palm_now = is_open_palm(landmarks)
                     shadow_now = is_shadow_sign(landmarks)
                     mid = pinch_midpoint(landmarks)
 
@@ -465,7 +455,7 @@ class GestureEngine:
                     v_since = None
                     v_fired = False
 
-                # --- Geste Shadow : maintien 0,5 s, anti-rebond 2 s ---
+                # --- ☝ Index seul : maintien 0,5 s, anti-rebond 2 s ---
                 # L'interrupteur du Shadow Workspace : le cooldown évite
                 # tout clignotement si le geste reste tenu ou est refait
                 # immédiatement.
@@ -483,29 +473,29 @@ class GestureEngine:
                             self.events.append(
                                 {"type": "gesture", "name": "shadow_sign"}
                             )
-                        logger.info("Geste Shadow validé — bascule du workspace")
+                        logger.info("Index levé validé — bascule du workspace")
                 else:
                     shadow_since = None
                     shadow_fired = False
 
-                # --- Geste OK : maintien 0,8 s → scan biométrique ---
-                if ok_now:
-                    if ok_since is None:
-                        ok_since = now
+                # --- 🖐 Main ouverte : maintien 0,8 s → scan biométrique ---
+                if palm_now:
+                    if palm_since is None:
+                        palm_since = now
                     if (
-                        not ok_fired
-                        and now - ok_since >= OK_HOLD_SECONDS
-                        and now - ok_released_at >= RELEASE_SECONDS
+                        not palm_fired
+                        and now - palm_since >= PALM_HOLD_SECONDS
+                        and now - palm_released_at >= RELEASE_SECONDS
                     ):
-                        ok_fired = True
+                        palm_fired = True
                         with self._lock:
-                            self.events.append({"type": "gesture", "name": "ok_sign"})
-                        logger.info("Geste OK validé (maintenu %.2f s)", now - ok_since)
+                            self.events.append({"type": "gesture", "name": "scan_sign"})
+                        logger.info("Main ouverte validée (%.2f s)", now - palm_since)
                 else:
-                    if ok_fired:
-                        ok_released_at = now
-                    ok_since = None
-                    ok_fired = False
+                    if palm_fired:
+                        palm_released_at = now
+                    palm_since = None
+                    palm_fired = False
 
                 # --- Pince : sélection chirurgicale au point médian ---
                 if pinch_now:
