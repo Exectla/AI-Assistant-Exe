@@ -51,9 +51,29 @@ ARGS = [
 ]
 
 
+def vision_args() -> list:
+    """Embarque OpenCV et MediaPipe (caméra/gestes) s'ils sont installés.
+
+    Les imports sont paresseux dans backend/vision.py ; sans ces
+    directives l'exécutable serait construit sans flux vidéo.
+    """
+    args = []
+    try:
+        import cv2  # noqa: F401
+        args.append("--hidden-import=cv2")
+    except ImportError:
+        print("[A.B.D.] AVERTISSEMENT : opencv-python absent — exe sans caméra")
+    try:
+        import mediapipe  # noqa: F401
+        args.append("--collect-all=mediapipe")
+    except ImportError:
+        print("[A.B.D.] AVERTISSEMENT : mediapipe absent — exe sans gestes")
+    return args
+
+
 def main() -> None:
     print(f"[A.B.D.] Build PyInstaller — plateforme : {sys.platform}")
-    PyInstaller.__main__.run(ARGS)
+    PyInstaller.__main__.run(ARGS + vision_args())
     suffix = ".exe" if sys.platform.startswith("win") else ""
     print(f"[A.B.D.] Exécutable généré : {ROOT / 'dist' / ('ABD' + suffix)}")
     print("[A.B.D.] Placez un fichier .env (GROQ_API_KEY=...) à côté de l'exécutable.")

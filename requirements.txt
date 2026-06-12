@@ -7,5 +7,7 @@ edge-tts
 websockets
 pypdf
 
-# Vision gestuelle (optionnel — signe V devant la webcam) :
-# pip install mediapipe
+# Vision gestuelle et scan biométrique : la caméra est capturée côté
+# noyau (OpenCV) — ces modules sont indispensables au flux vidéo.
+opencv-python
+mediapipe
