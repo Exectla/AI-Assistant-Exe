@@ -248,6 +248,26 @@ async def stt(request: Request) -> dict:
     return {"text": (result.text or "").strip()}
 
 
+class ShadowExportRequest(BaseModel):
+    lines: list[str]
+
+
+@app.post("/api/shadow/export")
+def shadow_export(request: ShadowExportRequest) -> dict:
+    """Export manuel du Shadow Workspace (protocole éphémère).
+
+    Le brouillon n'existe qu'en mémoire vive de l'interface ; cet appel
+    explicite est sa seule porte de sortie vers le disque
+    (ABD_Database/Shadow_Logs/, fichier .md horodaté).
+    """
+    from backend import rag
+
+    lines = [line.strip() for line in request.lines if line and line.strip()]
+    if not lines:
+        raise HTTPException(status_code=400, detail="Shadow Workspace vide.")
+    return rag.export_shadow_log(lines)
+
+
 @app.get("/api/rag/index")
 def rag_index() -> dict:
     """Arborescence de ABD_Database pour le graphe spatial."""

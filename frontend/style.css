@@ -935,3 +935,191 @@ body {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ============================================================
+   Shadow Workspace — brouillon holographique éphémère
+   Panneau Liquid Glass invoqué par le geste index+majeur collés
+   (ou touche W). Apparition à ressort, lignes flottantes, export
+   manuel exclusif vers ABD_Database/Shadow_Logs/.
+   ============================================================ */
+
+.shadow {
+  position: fixed;
+  left: 6vw;
+  top: 50%;
+  width: 30vw;
+  height: 68vh;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 1.6vh;
+  padding: 3vh 1.8vw;
+  border-radius: var(--glass-radius);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-shadow);
+  opacity: 0;
+  transform: translateY(-50%) scale(0.86);
+}
+
+/* Physique à ressort : la goutte de verre se déploie puis se pose */
+.shadow--open {
+  animation: shadow-pop 0.7s var(--ease-spring) forwards;
+}
+
+.shadow--closing {
+  animation: shadow-fold 0.42s var(--ease) forwards;
+}
+
+@keyframes shadow-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.86);
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes shadow-fold {
+  from {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.92);
+    filter: blur(8px);
+  }
+}
+
+.shadow__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1vw;
+  border-bottom: 1px solid var(--color-line);
+  padding-bottom: 1.2vh;
+}
+
+.shadow__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.shadow__badge {
+  font-size: 0.55rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.shadow__lines {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4vh;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to bottom, transparent, black 6%, black 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 6%, black 100%);
+}
+
+.shadow__lines::-webkit-scrollbar {
+  display: none;
+}
+
+.shadow__lines:empty::before {
+  content: "Parlez — chaque idée s'inscrit ici, et nulle part ailleurs.";
+  font-size: 0.78rem;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.shadow__line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8vw;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.88);
+  animation: shadow-line-in 0.5s var(--ease-spring) forwards;
+  opacity: 0;
+}
+
+@keyframes shadow-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.shadow__stamp {
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  color: var(--accent-cyan);
+  opacity: 0.65;
+  flex-shrink: 0;
+}
+
+.shadow__line--live {
+  color: rgba(160, 225, 255, 0.55);
+  font-style: italic;
+  animation: none;
+  opacity: 1;
+}
+
+.shadow__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1vw;
+  border-top: 1px solid var(--color-line);
+  padding-top: 1.4vh;
+}
+
+.shadow__status {
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Bouton holographique : verre dans le verre, halo cyan au survol */
+.shadow__export {
+  appearance: none;
+  cursor: pointer;
+  padding: 1.1vh 1.4vw;
+  font-family: inherit;
+  font-size: 0.66rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+  background: rgba(65, 224, 255, 0.05);
+  border: 1px solid rgba(65, 224, 255, 0.35);
+  border-radius: calc(var(--glass-radius) / 2);
+  transition: box-shadow 0.35s var(--ease), background 0.35s var(--ease);
+}
+
+.shadow__export:hover {
+  background: rgba(65, 224, 255, 0.12);
+  box-shadow: 0 0 24px rgba(65, 224, 255, 0.25),
+              inset 0 0 12px rgba(65, 224, 255, 0.12);
+}

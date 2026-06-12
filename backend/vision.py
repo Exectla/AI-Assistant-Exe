@@ -1,7 +1,10 @@
 """A.B.D. — Moteur de vision gestuelle (MediaPipe Hands + Face Mesh).
 
 Capture la webcam côté serveur et fournit :
-  - le signe "V" (debounce 0,5 s) — déploiement de l'ordinateur spatial ;
+  - le signe "V" (index/majeur tendus et ÉCARTÉS, debounce 0,5 s) —
+    déploiement de l'ordinateur spatial ;
+  - le geste "Shadow" (index/majeur tendus et COLLÉS, maintien 0,5 s,
+    anti-rebond 2 s) — interrupteur du Shadow Workspace ;
   - la pince pouce/index (distance euclidienne 3D, point médian publié
     pour une sélection chirurgicale des nœuds) ;
   - le geste "OK" (cercle pouce/index, trois doigts déployés, maintien
@@ -36,6 +39,16 @@ RELEASE_SECONDS = 0.4
 # rester utilisable loin de la caméra.
 PINCH_DIST_3D = 0.03
 PINCH_RELATIVE = 0.30
+
+# Geste "Shadow" : index(8) et majeur(12) tendus ET collés. Plancher
+# absolu de la spec (0.04) + adaptation à la taille de la main. Le
+# signe V exige au contraire un écart franc (marge ×1.25 entre les
+# deux pour qu'aucun tremblement ne fasse basculer l'un dans l'autre).
+SHADOW_HOLD_SECONDS = 0.5
+SHADOW_COOLDOWN_SECONDS = 2.0
+FINGERS_GLUED_DIST = 0.04
+FINGERS_GLUED_RELATIVE = 0.22
+V_SPREAD_MARGIN = 1.25
 
 CAPTURE_WIDTH = 640
 CAPTURE_HEIGHT = 360
@@ -104,13 +117,34 @@ def pinch_midpoint(landmarks) -> tuple:
     )
 
 
-def is_v_sign(landmarks) -> bool:
-    """Signe "V" : index/majeur tendus, annulaire/auriculaire repliés."""
+def _index_middle_up(landmarks) -> bool:
+    """Index et majeur tendus, annulaire et auriculaire repliés."""
     return (
         landmarks[8].y < landmarks[6].y
         and landmarks[12].y < landmarks[10].y
         and landmarks[16].y > landmarks[14].y
         and landmarks[20].y > landmarks[18].y
+    )
+
+
+def _glued_threshold(landmarks) -> float:
+    return max(FINGERS_GLUED_DIST, _hand_size(landmarks) * FINGERS_GLUED_RELATIVE)
+
+
+def is_shadow_sign(landmarks) -> bool:
+    """Geste "Shadow" : index et majeur tendus et COLLÉS (spec : < 0.04)."""
+    return (
+        _index_middle_up(landmarks)
+        and _dist3(landmarks[8], landmarks[12]) < _glued_threshold(landmarks)
+    )
+
+
+def is_v_sign(landmarks) -> bool:
+    """Signe "V" : index/majeur tendus et nettement ÉCARTÉS (≠ Shadow)."""
+    return (
+        _index_middle_up(landmarks)
+        and _dist3(landmarks[8], landmarks[12])
+        > _glued_threshold(landmarks) * V_SPREAD_MARGIN
     )
 
 
@@ -378,6 +412,9 @@ class GestureEngine:
             ok_released_at = 0.0
             pinch_frames = 0
             pinch_active = False
+            shadow_since = None
+            shadow_fired = False
+            shadow_cooldown_until = 0.0
 
             while True:
                 with self._lock:
@@ -397,7 +434,7 @@ class GestureEngine:
 
                 present = landmarks is not None
                 hand_x, hand_y = 0.5, 0.5
-                v_now = pinch_now = ok_now = False
+                v_now = pinch_now = ok_now = shadow_now = False
                 mid = (0.5, 0.5)
 
                 if present:
@@ -406,6 +443,7 @@ class GestureEngine:
                     v_now = is_v_sign(landmarks)
                     pinch_now = is_pinch(landmarks)
                     ok_now = is_ok_sign(landmarks)
+                    shadow_now = is_shadow_sign(landmarks)
                     mid = pinch_midpoint(landmarks)
 
                 # --- Signe V : maintien 0,5 s ---
@@ -426,6 +464,29 @@ class GestureEngine:
                         v_released_at = now
                     v_since = None
                     v_fired = False
+
+                # --- Geste Shadow : maintien 0,5 s, anti-rebond 2 s ---
+                # L'interrupteur du Shadow Workspace : le cooldown évite
+                # tout clignotement si le geste reste tenu ou est refait
+                # immédiatement.
+                if shadow_now:
+                    if shadow_since is None:
+                        shadow_since = now
+                    if (
+                        not shadow_fired
+                        and now - shadow_since >= SHADOW_HOLD_SECONDS
+                        and now >= shadow_cooldown_until
+                    ):
+                        shadow_fired = True
+                        shadow_cooldown_until = now + SHADOW_COOLDOWN_SECONDS
+                        with self._lock:
+                            self.events.append(
+                                {"type": "gesture", "name": "shadow_sign"}
+                            )
+                        logger.info("Geste Shadow validé — bascule du workspace")
+                else:
+                    shadow_since = None
+                    shadow_fired = False
 
                 # --- Geste OK : maintien 0,8 s → scan biométrique ---
                 if ok_now:

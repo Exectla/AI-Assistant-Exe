@@ -1098,9 +1098,22 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   visionLink.onScanData = (data) => scan.onScanData(data);
 
+  /* Shadow Workspace : brouillon holographique éphémère, invoqué par
+     le geste index+majeur collés (ou la touche W). */
+  const shadow = new window.ABDShadow.ShadowWorkspace({
+    root: document.getElementById("shadow"),
+    lines: document.getElementById("shadow-lines"),
+    status: document.getElementById("shadow-status"),
+    exportButton: document.getElementById("shadow-export"),
+    audio: audioEngine,
+    apiBase: API_BASE,
+  });
+
   visionLink.onGesture = (event) => {
     if (event.name === "v_sign") {
       hud.toggle();
+    } else if (event.name === "shadow_sign") {
+      shadow.toggle();
     } else if (event.name === "pinch") {
       /* Sélection chirurgicale : le point médian pouce/index publié
          par le moteur de vision sert de rayon de visée. */
@@ -1128,6 +1141,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (event.key.toLowerCase() === "b" && !typing) {
       scan.toggle();
+    }
+    if (event.key.toLowerCase() === "w" && !typing) {
+      shadow.toggle();
     }
   });
 
