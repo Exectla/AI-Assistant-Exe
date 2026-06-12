@@ -77,8 +77,27 @@ class SystemApi:
             os._exit(0)
 
 
+def force_media_permissions() -> None:
+    """Autorise d'office micro et caméra dans le moteur web.
+
+    Équivalent pywebview/WebView2 du setPermissionRequestHandler
+    d'Electron : ces drapeaux Chromium font accepter automatiquement
+    toute demande getUserMedia (audioCapture/videoCapture) sans boîte
+    de dialogue, et libèrent la lecture audio sans clic préalable.
+    Doit être positionné AVANT la création du moteur WebView2.
+    """
+    flags = (
+        "--use-fake-ui-for-media-stream "
+        "--enable-media-stream "
+        "--autoplay-policy=no-user-gesture-required"
+    )
+    existing = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "")
+    os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = f"{existing} {flags}".strip()
+
+
 def main() -> None:
     print("[A.B.D.] Démarrage du noyau…")
+    force_media_permissions()
     backend = threading.Thread(target=start_backend, daemon=True)
     backend.start()
 

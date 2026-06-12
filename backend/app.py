@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from groq import Groq
@@ -215,9 +215,42 @@ async def tts(request: TTSRequest) -> StreamingResponse:
     return StreamingResponse(audio_stream(), media_type="audio/mpeg")
 
 
+STT_MODEL = "whisper-large-v3-turbo"
+
+
+@app.post("/api/stt")
+async def stt(request: Request) -> dict:
+    """Transcription vocale (Whisper via Groq).
+
+    Reçoit l'audio brut capturé par le micro (webm/opus) et renvoie le
+    texte en français. C'est la voie d'entrée micro d'ABD : le moteur
+    WebView2 n'implémente pas l'API Web Speech, la reconnaissance se
+    fait donc côté noyau.
+    """
+    client = get_client()
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="Audio vide.")
+
+    logger.info("Transcription vocale (%d octets, modèle %s)", len(data), STT_MODEL)
+    try:
+        result = client.audio.transcriptions.create(
+            file=("audio.webm", data),
+            model=STT_MODEL,
+            language="fr",
+        )
+    except Exception as exc:
+        logger.error("Échec de la transcription Groq : %s", exc)
+        raise HTTPException(
+            status_code=502, detail=f"Erreur de transcription : {exc}"
+        ) from exc
+
+    return {"text": (result.text or "").strip()}
+
+
 @app.get("/api/rag/index")
 def rag_index() -> dict:
-    """Arborescence de IRIS_Database pour le graphe spatial."""
+    """Arborescence de ABD_Database pour le graphe spatial."""
     from backend import rag
 
     return rag.build_index()
@@ -225,7 +258,7 @@ def rag_index() -> dict:
 
 @app.get("/api/rag/file")
 def rag_file(path: str) -> dict:
-    """Contenu texte d'un document de IRIS_Database."""
+    """Contenu texte d'un document de ABD_Database."""
     from backend import rag
 
     try:
@@ -233,7 +266,7 @@ def rag_file(path: str) -> dict:
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Document introuvable : {path}")
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Chemin hors de IRIS_Database.")
+        raise HTTPException(status_code=403, detail="Chemin hors de ABD_Database.")
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

@@ -40,18 +40,21 @@ Faites le **signe « V »** (index et majeur levés) devant la webcam pendant
 en HUD plein écran : graphe de connaissances 3D, curseur spatial suivant
 la main, parallaxe caméra. Refaites le geste pour replier le HUD.
 
-La détection gestuelle (MediaPipe, côté serveur Python) est optionnelle :
+La caméra est capturée **côté noyau** (OpenCV + MediaPipe, installés via
+`requirements.txt`) — aucune autorisation navigateur n'est nécessaire.
+Sous Windows, vérifiez que l'accès caméra/micro est activé pour les
+applications de bureau (Paramètres → Confidentialité). Sans webcam, la
+touche V reste pleinement fonctionnelle.
 
-```bash
-pip install mediapipe
-```
+Le **microphone** fonctionne dans tous les cas : reconnaissance vocale du
+moteur web quand elle existe, sinon enregistrement direct du micro
+(autorisé d'office par le lanceur) transcrit par **Whisper** via Groq.
 
-Sans webcam ou sans ce module, la touche V reste pleinement fonctionnelle.
+## Spatial RAG — ABD_Database
 
-## Spatial RAG — IRIS_Database
-
-Au premier lancement, un dossier **`IRIS_Database/`** est créé à la racine
-du projet (sous-dossiers d'exemple : `Bac_SES_2026`,
+Au premier lancement, un dossier **`ABD_Database/`** est créé à la racine
+du projet (un ancien dossier `IRIS_Database/` est migré automatiquement ;
+sous-dossiers d'exemple : `Bac_SES_2026`,
 `Projet_Robots_Shenzhen`, `Checklists_A320neo`). Déposez-y vos documents
 (`.txt`, `.md`, `.pdf`…) : chacun devient un **nœud 3D** dans l'ordinateur
 spatial.

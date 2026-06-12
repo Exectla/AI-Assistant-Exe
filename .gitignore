@@ -6,5 +6,6 @@ venv/
 build/
 dist/
 *.spec
+ABD_Database/
 IRIS_Database/
 backend/models/

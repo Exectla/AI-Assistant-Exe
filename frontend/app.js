@@ -844,6 +844,14 @@ class SpeechController {
     this.micButton = document.getElementById("mic-button");
     this.recognition = null;
     this.listening = false;
+    /* Voie de secours micro : WebView2 (moteur de la fenêtre native)
+       n'implémente pas l'API Web Speech — on enregistre alors le micro
+       (getUserMedia, autorisé d'office par le lanceur) et le noyau
+       transcrit via Whisper (/api/stt). */
+    this.useRecorder = false;
+    this.recorder = null;
+    this.recorderStream = null;
+    this.chunks = [];
   }
 
   init() {
@@ -867,18 +875,46 @@ class SpeechController {
       this.recognition.addEventListener("error", (event) => {
         logError("SpeechController : erreur de reconnaissance —", event.error);
         this.setListening(false);
+        /* Service vocal bloqué ou absent (cas WebView2) : bascule
+           définitive sur l'enregistreur + transcription noyau. */
+        const fatal = ["not-allowed", "service-not-allowed", "network", "audio-capture"];
+        if (fatal.includes(event.error) && this.canRecord()) {
+          this.recognition = null;
+          this.useRecorder = true;
+          log("SpeechController : bascule micro → transcription noyau (Whisper)");
+        }
       });
+    } else if (this.canRecord()) {
+      this.useRecorder = true;
+      log("SpeechController : Web Speech absent — micro via transcription noyau");
     } else {
-      log("SpeechController : reconnaissance vocale non disponible dans ce moteur");
+      log("SpeechController : aucun accès micro disponible dans ce moteur");
       this.micButton.disabled = true;
-      this.micButton.title = "Reconnaissance vocale non disponible";
+      this.micButton.title = "Microphone non disponible";
     }
 
     this.micButton.addEventListener("click", () => this.toggle());
     this.ui.onReply = (text) => this.speak(text);
   }
 
+  canRecord() {
+    return Boolean(
+      navigator.mediaDevices &&
+      navigator.mediaDevices.getUserMedia &&
+      window.MediaRecorder
+    );
+  }
+
   toggle() {
+    if (this.useRecorder) {
+      if (this.listening) {
+        this.stopRecording();
+      } else {
+        this.voice.stop();
+        this.startRecording();
+      }
+      return;
+    }
     if (!this.recognition) {
       return;
     }
@@ -889,6 +925,74 @@ class SpeechController {
       this.voice.stop();
       this.recognition.start();
       this.setListening(true);
+    }
+  }
+
+  async startRecording() {
+    try {
+      this.recorderStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      logError("SpeechController : micro inaccessible —", error);
+      return;
+    }
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+    this.chunks = [];
+    this.recorder = new MediaRecorder(this.recorderStream, { mimeType });
+    this.recorder.addEventListener("dataavailable", (event) => {
+      if (event.data && event.data.size > 0) {
+        this.chunks.push(event.data);
+      }
+    });
+    this.recorder.addEventListener("stop", () => {
+      const blob = new Blob(this.chunks, { type: mimeType });
+      this.releaseRecorder();
+      if (blob.size > 0) {
+        this.transcribe(blob);
+      }
+    });
+    this.recorder.start();
+    this.setListening(true);
+  }
+
+  stopRecording() {
+    this.setListening(false);
+    if (this.recorder && this.recorder.state !== "inactive") {
+      this.recorder.stop();
+    } else {
+      this.releaseRecorder();
+    }
+  }
+
+  releaseRecorder() {
+    /* Libère physiquement le micro (éteint l'indicateur système). */
+    if (this.recorderStream) {
+      this.recorderStream.getTracks().forEach((track) => track.stop());
+      this.recorderStream = null;
+    }
+    this.recorder = null;
+  }
+
+  async transcribe(blob) {
+    try {
+      const response = await fetch(`${API_BASE}/api/stt`, {
+        method: "POST",
+        headers: { "Content-Type": blob.type || "audio/webm" },
+        body: blob,
+      });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`HTTP ${response.status} — ${detail}`);
+      }
+      const { text } = await response.json();
+      if (text) {
+        this.ui.submitMessage(text);
+      } else {
+        log("SpeechController : transcription vide (parole non détectée)");
+      }
+    } catch (error) {
+      logError("SpeechController : échec de la transcription —", error);
     }
   }
 

@@ -268,7 +268,7 @@ class SpatialHUD {
       ]);
     }
 
-    /* Spatial RAG : IRIS_Database — les nœuds se matérialisent dès
+    /* Spatial RAG : ABD_Database — les nœuds se matérialisent dès
        que l'index arrive (chargement asynchrone, non bloquant). */
     this.loadDatabase();
   }

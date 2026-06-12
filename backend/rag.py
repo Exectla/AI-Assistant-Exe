@@ -1,6 +1,6 @@
 """A.B.D. — Spatial RAG (Reasoning & Awareness Graph).
 
-Indexe le répertoire local ``IRIS_Database`` (créé automatiquement avec
+Indexe le répertoire local ``ABD_Database`` (créé automatiquement avec
 ses sous-dossiers par défaut) et extrait le texte des documents pour les
 charger dans le contexte du modèle. Chaque fichier devient un nœud du
 graphe spatial ; une pince sur un nœud ouvre le panneau de lecture.
@@ -12,7 +12,10 @@ from pathlib import Path
 
 logger = logging.getLogger("abd.rag")
 
-DATABASE_NAME = "IRIS_Database"
+DATABASE_NAME = "ABD_Database"
+# Ancien nom (avant la rectification d'identité du système) : migré
+# automatiquement au démarrage pour préserver les documents existants.
+LEGACY_DATABASE_NAME = "IRIS_Database"
 
 DEFAULT_FOLDERS = {
     "Bac_SES_2026": (
@@ -45,15 +48,27 @@ MAX_CONTENT_CHARS = 40_000
 
 
 def database_root() -> Path:
-    """IRIS_Database à la racine du projet (ou à côté de l'exécutable)."""
+    """ABD_Database à la racine du projet (ou à côté de l'exécutable)."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent / DATABASE_NAME
     return Path(__file__).resolve().parent.parent / DATABASE_NAME
 
 
+def _migrate_legacy_database(root: Path) -> None:
+    """Renomme l'ancien dossier IRIS_Database en ABD_Database."""
+    legacy = root.parent / LEGACY_DATABASE_NAME
+    if legacy.is_dir() and not root.exists():
+        try:
+            legacy.rename(root)
+            logger.info("Base migrée : %s → %s", legacy.name, root.name)
+        except OSError as exc:
+            logger.warning("Migration de %s impossible : %s", legacy, exc)
+
+
 def ensure_database() -> Path:
     """Crée l'arborescence par défaut au premier lancement."""
     root = database_root()
+    _migrate_legacy_database(root)
     created = not root.exists()
     for folder, (sample_name, sample_text) in DEFAULT_FOLDERS.items():
         directory = root / folder
@@ -87,12 +102,12 @@ def build_index() -> dict:
 def read_document(relative_path: str) -> dict:
     """Extrait le texte d'un document de la base (txt/md/pdf).
 
-    Refuse tout chemin sortant de IRIS_Database (traversée interdite).
+    Refuse tout chemin sortant de ABD_Database (traversée interdite).
     """
     root = ensure_database().resolve()
     target = (root / relative_path).resolve()
     if root not in target.parents and target != root:
-        raise PermissionError("chemin hors de IRIS_Database")
+        raise PermissionError("chemin hors de ABD_Database")
     if not target.is_file():
         raise FileNotFoundError(relative_path)
 
