@@ -92,11 +92,19 @@ def main() -> None:
         )
 
     api = SystemApi()
+    # Verrouillage absolu (mode kiosque) : fenêtre ancrée de manière rigide —
+    # ni déplaçable, ni redimensionnable, toujours au premier plan.
+    # easy_drag=False est crucial : pywebview l'active par défaut sur les
+    # fenêtres frameless, ce qui permettait de saisir et déplacer la fenêtre
+    # avec la souris depuis n'importe quel point de l'interface.
     window = webview.create_window(
         title="A.B.D.",
         url=INDEX_HTML.as_uri(),
         fullscreen=True,
         frameless=True,
+        easy_drag=False,
+        resizable=False,
+        on_top=True,
         background_color="#000000",
         js_api=api,
     )

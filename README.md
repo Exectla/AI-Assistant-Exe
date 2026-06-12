@@ -71,12 +71,22 @@ s'appuyant sur ce document précis.
 | Geste 👌 (0,8 s) ou touche `B` | **Scan biométrique** — Face Mesh 468 points, flux caméra, nappe 30 Hz |
 | Touche `Échap` | **Kill switch** — extinction instantanée de l'application |
 
-L'application démarre en **plein écran strict** (fenêtre sans bordures).
+L'application démarre en **mode kiosque verrouillé** : plein écran strict,
+fenêtre sans bordures, **indéplaçable** (anti-drag souris), non
+redimensionnable et toujours au premier plan. Seule la touche `Échap`
+(kill switch) permet d'en sortir.
 
 ## Build exécutable autonome
 
 Produit un fichier unique embarquant le backend, le lanceur et toutes les
 ressources `frontend/` — aucun Python requis sur la machine cible.
+
+**Windows (sans terminal)** : double-cliquez sur **`build_windows.bat`** —
+il installe les dépendances, construit `dist\ABD.exe` et y copie votre
+`.env`. Ensuite, double-cliquez simplement sur `dist\ABD.exe` pour lancer
+l'ordinateur spatial.
+
+En ligne de commande (toutes plateformes) :
 
 ```bash
 pip install -r requirements.txt pyinstaller
