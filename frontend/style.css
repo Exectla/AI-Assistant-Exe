@@ -46,6 +46,9 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  /* Anti-saisie souris : aucun élément ne peut servir de poignée pour
+     déplacer la fenêtre native (complète easy_drag=False côté lanceur). */
+  -webkit-app-region: no-drag !important;
 }
 
 html,
@@ -57,6 +60,8 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-app-region: no-drag !important;
 }
 
 /* ============================================================
